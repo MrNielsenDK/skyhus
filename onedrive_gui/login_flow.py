@@ -62,7 +62,8 @@ class LoginFlow:
                  popen: Callable[..., subprocess.Popen] | None = None,
                  run: Callable[..., subprocess.CompletedProcess] | None = None,
                  clock: Callable[[], float] | None = None,
-                 tmp_base: Path | None = None, proc_root: Path = PROC_ROOT):
+                 tmp_base: Path | None = None, proc_root: Path = PROC_ROOT,
+                 send_signal: Callable[[object, int], None] | None = None):
         self.confdir = Path(confdir)
         self.name = name
         self.service = service
@@ -74,7 +75,7 @@ class LoginFlow:
         self.reauth = (self.confdir / "refresh_token").exists()
         """Kontoen har en ``refresh_token``. Login bruger ``--reauth``."""
         self.auth = AuthSession(self.confdir, reauth=self.reauth, popen=popen, clock=clock,
-                                tmp_base=tmp_base)
+                                tmp_base=tmp_base, send_signal=send_signal)
         self.state = FlowState.STARTING
         self.service_error = ""
         self.service_stopped = False

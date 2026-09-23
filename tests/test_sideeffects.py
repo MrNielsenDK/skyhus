@@ -353,24 +353,18 @@ def test_every_file_write_is_guarded(path):
 
 
 SIGNAL_CALLS = {("os", "kill"), ("os", "killpg")}
+SIGNAL_METHODS = {"terminate", "kill", "send_signal"}
 
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
 def test_no_module_sends_signals_directly(path):
-    """Signaler går gennem ``sideeffects.signal_process`` (feature 0010)."""
+    """Signaler går gennem ``sideeffects.signal_process`` (feature 0010 og 0011).
+
+    Testen dækker ``.terminate()``, ``.kill()``, ``.send_signal()``, ``os.kill()`` og ``os.killpg()``."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found = [f"{path.name}:{node.lineno} {node.func.attr}"
              for node in ast.walk(tree)
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-             and (node.func.attr == "send_signal"
+             and (node.func.attr in SIGNAL_METHODS
                   or (isinstance(node.func.value, ast.Name) and (node.func.value.id, node.func.attr) in SIGNAL_CALLS))]
-    assert found == []
-
-
-def test_apply_does_not_terminate_or_kill_directly():
-    """Uploaden i ``apply.py`` stopper kun processen med ``sideeffects.signal_process`` (feature 0010)."""
-    tree = ast.parse((PACKAGE_DIR / "apply.py").read_text(encoding="utf-8"))
-    found = [node.lineno for node in ast.walk(tree)
-             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-             and node.func.attr in ("terminate", "kill")]
     assert found == []

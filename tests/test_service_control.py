@@ -259,6 +259,42 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(home, monkeypatch):
     assert not any("stop" in c for c in underlying.calls)
 
 
+def test_cancel_resync_in_safe_mode_writes_no_mark(home, monkeypatch, caplog):
+    import logging
+    import subprocess
+    from onedrive_gui import service_state
+    monkeypatch.setattr(subprocess, "run", ScriptedRun(outputs={"show": SHOW_RESYNC}))
+
+    with caplog.at_level(logging.WARNING):
+        service_control.cancel_resync("onedrive-privat.service", home=home)
+
+    assert service_state.cancelled_resyncs(home) == {}
+    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert "SAFE MODE: skriver ikke markeringen for onedrive-privat.service" in caplog.text
+
+
+def test_cancel_resync_in_safe_mode_with_sideeffects_run_writes_no_mark(home, monkeypatch):
+    """Controlleren giver ``sideeffects.run`` videre. Det tæller ikke som en injiceret ``run``."""
+    import subprocess
+    from onedrive_gui import service_state, sideeffects
+    monkeypatch.setattr(subprocess, "run", ScriptedRun(outputs={"show": SHOW_RESYNC}))
+
+    service_control.cancel_resync("onedrive-privat.service", home=home, run=sideeffects.run)
+
+    assert service_state.cancelled_resyncs(home) == {}
+
+
+def test_cancel_resync_in_safe_mode_with_injected_run_writes_the_mark(home):
+    from onedrive_gui import service_state, sideeffects
+    assert sideeffects.safe_mode()
+    run = ScriptedRun(outputs={"show": SHOW_RESYNC})
+
+    service_control.cancel_resync("onedrive-privat.service", home=home, run=run)
+
+    assert run.calls[-1] == ["systemctl", "--user", "stop", "onedrive-privat.service"]
+    assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": "abc123"}
+
+
 def test_start_after_cancelled_resync_removes_the_mark(home):
     from onedrive_gui import service_state
     service_state.mark_resync_cancelled("onedrive-privat.service", "abc123", home=home)

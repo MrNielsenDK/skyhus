@@ -1258,7 +1258,8 @@ class AppController(QObject):
     def _start_login(self, confdir: Path, name: str, service: str) -> None:
         self._folders_chosen = False
         self._flow = LoginFlow(confdir, name, service, registry=self._registry, home=self._home,
-                               popen=self._popen, run=self._run, proc_root=self._proc_root)
+                               popen=self._popen, run=self._run, proc_root=self._proc_root,
+                               send_signal=self._send_signal)
         if self._flow.reauth:
             # Flowet stopper måske servicen først. Det kan tage op til 90 sekunder.
             text = f"Stopper {service} før login" if service else f"Starter login for {name}"

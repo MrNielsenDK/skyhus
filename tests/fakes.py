@@ -34,6 +34,14 @@ class FakeProcess:
         if self.returncode is None:
             self.returncode = -9
 
+    def receive(self, sig):
+        """Et signal fra ``FakeSignals``."""
+        import signal
+        if sig == signal.SIGKILL:
+            self.kill()
+        else:
+            self.terminate()
+
     def wait(self, timeout=None):
         return self.returncode
 

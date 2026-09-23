@@ -12,7 +12,7 @@ from onedrive_gui.registry import Registry  # noqa: E402
 from onedrive_gui.viewmodels import AppController  # noqa: E402
 
 from conftest import RecordingRun, make_account_dir  # noqa: E402
-from fakes import FakeGraph, FakePopen, FakeStoppablePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
+from fakes import FakeGraph, FakePopen, FakeSignals, FakeStoppablePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
 
 ROOT_CHILDREN = "/v1.0/me/drive/root/children"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -109,7 +109,7 @@ def test_add_account_with_existing_name_creates_nothing(app, home):
 
 def test_cancel_login(app, home):
     popen, run = FakePopen(), RecordingRun()
-    controller = AppController(home, popen=popen, run=run)
+    controller = AppController(home, popen=popen, run=run, send_signal=FakeSignals())
     controller.addAccount("Firma 2", "~/OneDrive-Firma-2")
 
     controller.cancelLogin()
@@ -557,7 +557,7 @@ def relogin_controller(home, tmp_path, active="active", **kwargs):
     (confdir / "refresh_token").chmod(0o600)
     popen = FakePopen()
     run = ScriptedRun(outputs={"show": service_show("onedrive-x.service", active=active)}, **kwargs)
-    controller = make_controller(home, tmp_path, popen=popen, run=run)
+    controller = make_controller(home, tmp_path, popen=popen, run=run, send_signal=FakeSignals())
     return controller, confdir, popen, run
 
 
@@ -1305,6 +1305,9 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(app, home, tmp_path, monk
     assert role(controller, "serviceMessage") == ""
     assert stops(underlying) == []
     assert [c for c in underlying.calls if c[0] == "systemctl" and c[2] in CHANGING_SYSTEMCTL] == []
+    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    read_status_now(controller)
+    assert role(controller, "serviceLabel") == "Resynkroniserer"
 
 
 def test_cancel_resync_is_ignored_when_the_service_is_not_resyncing(app, home, tmp_path):

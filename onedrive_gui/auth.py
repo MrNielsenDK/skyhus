@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -82,11 +83,13 @@ class AuthSession:
                  popen: Callable[..., subprocess.Popen] | None = None,
                  clock: Callable[[], float] | None = None,
                  tmp_base: Path | None = None,
-                 exit_grace: float = EXIT_GRACE_SECONDS):
+                 exit_grace: float = EXIT_GRACE_SECONDS,
+                 send_signal: Callable[[object, int], None] | None = None):
         self.confdir = Path(confdir)
         self.reauth = reauth
         self.onedrive = onedrive
         self._popen = popen
+        self._send_signal = send_signal or sideeffects.signal_process
         self._clock = clock or time.monotonic
         self._tmp_base = tmp_base
         self._exit_grace = exit_grace
@@ -270,11 +273,11 @@ class AuthSession:
         process = self._process
         if process is None or process.poll() is not None:
             return
-        process.terminate()
+        self._send_signal(process, signal.SIGTERM)
         try:
             process.wait(timeout=STOP_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
-            process.kill()
+            self._send_signal(process, signal.SIGKILL)
             process.wait()
 
     def _fail(self, message: str) -> None:

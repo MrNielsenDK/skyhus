@@ -1,11 +1,15 @@
 """Login via --auth-files (feature 0001)."""
 
+import logging
+import signal
+import subprocess
+
 import pytest
 
 from onedrive_gui.auth import AuthSession, AuthState, parse_redirect
 
 from conftest import make_account_dir
-from fakes import FakeClock, FakePopen
+from fakes import FakeClock, FakePopen, FakeSignals
 
 AUTH_URL = ("https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
             "?client_id=d50ca740-c83f-4d1b-b616-12c519384f0c&response_type=code")
@@ -23,9 +27,14 @@ def clock():
 
 
 @pytest.fixture
-def session(home, tmp_path, popen, clock):
+def signals():
+    return FakeSignals()
+
+
+@pytest.fixture
+def session(home, tmp_path, popen, clock, signals):
     confdir = make_account_dir(home, "onedrive-firma-2", config='sync_dir = "~/X"\n')
-    s = AuthSession(confdir, popen=popen, clock=clock, tmp_base=tmp_path)
+    s = AuthSession(confdir, popen=popen, clock=clock, tmp_base=tmp_path, send_signal=signals)
     s.start()
     yield s
     s.close()
@@ -74,7 +83,7 @@ def test_other_url_is_not_written(session, popen):
     assert session.poll() is AuthState.WAITING_FOR_USER
 
 
-def test_error_url_fails_with_message(session, popen):
+def test_error_url_fails_with_message(session, popen, signals):
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
 
@@ -86,15 +95,16 @@ def test_error_url_fails_with_message(session, popen):
     assert session.poll() is AuthState.FAILED
     assert "Brugeren afbrød login" in session.error
     assert not popen.last.response_path.exists()
-    assert popen.last.terminated
+    assert signals.signals == [signal.SIGTERM]
 
 
-def test_cancel_stops_the_process(session, popen):
+def test_cancel_stops_the_process(session, popen, signals):
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
 
     session.cancel()
 
+    assert signals.signals == [signal.SIGTERM]
     assert popen.last.terminated
     assert session.poll() is AuthState.CANCELLED
 
@@ -118,7 +128,7 @@ def test_zero_exit_without_refresh_token_fails(session, popen):
     assert session.error
 
 
-def test_refresh_token_and_exit_succeeds(session, popen, home):
+def test_refresh_token_and_exit_succeeds(session, popen, home, signals):
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
     session.submit_redirect(CODE_URL)
@@ -128,9 +138,10 @@ def test_refresh_token_and_exit_succeeds(session, popen, home):
     popen.last.exit(0)
     assert session.poll() is AuthState.SUCCEEDED
     assert not popen.last.terminated
+    assert signals.sent == []
 
 
-def test_process_is_stopped_30_seconds_after_refresh_token(session, popen, home, clock):
+def test_process_is_stopped_30_seconds_after_refresh_token(session, popen, home, clock, signals):
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
     session.submit_redirect(CODE_URL)
@@ -143,7 +154,7 @@ def test_process_is_stopped_30_seconds_after_refresh_token(session, popen, home,
 
     clock.now += 0.1
     assert session.poll() is AuthState.SUCCEEDED
-    assert popen.last.terminated
+    assert signals.signals == [signal.SIGTERM]
 
 
 def test_old_refresh_token_does_not_count(home, tmp_path, popen, clock):
@@ -262,3 +273,65 @@ def test_reauth_backup_is_removed_with_workdir(reauth_confdir, tmp_path, popen, 
     s.close()
 
     assert not workdir.exists()
+
+
+# Signaler via sideeffects (feature 0011)
+
+class StubbornProcess:
+    """En proces, der ignorerer SIGTERM og først stopper ved SIGKILL."""
+
+    def __init__(self):
+        self.returncode = None
+        self.pid = 4711
+        self.waits = []
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self.waits.append(timeout)
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired("onedrive", timeout)
+        return self.returncode
+
+    def receive(self, sig):
+        if sig == signal.SIGKILL:
+            self.returncode = -9
+
+
+def test_process_that_ignores_sigterm_gets_sigkill(home, tmp_path, clock, signals):
+    from onedrive_gui.auth import STOP_TIMEOUT_SECONDS
+    confdir = make_account_dir(home, "onedrive-firma-2", config="")
+    process = StubbornProcess()
+    session = AuthSession(confdir, popen=lambda args, **kw: process, clock=clock,
+                          tmp_base=tmp_path, send_signal=signals)
+    session.start()
+
+    session.cancel()
+
+    assert signals.signals == [signal.SIGTERM, signal.SIGKILL]
+    assert process.waits[0] == STOP_TIMEOUT_SECONDS
+    assert session.poll() is AuthState.CANCELLED
+
+
+def test_stopped_process_gets_no_signal(session, popen, signals):
+    popen.last.exit(1)
+
+    session.cancel()
+
+    assert signals.sent == []
+
+
+def test_cancel_in_safe_mode_sends_no_signal(home, tmp_path, clock, popen, caplog):
+    """Uden en injiceret ``send_signal`` bruger sessionen ``sideeffects.signal_process``."""
+    confdir = make_account_dir(home, "onedrive-firma-2", config="")
+    session = AuthSession(confdir, popen=popen, clock=clock, tmp_base=tmp_path)
+    session.start()
+
+    with caplog.at_level(logging.WARNING):
+        session.cancel()
+
+    assert not popen.last.terminated
+    assert not popen.last.killed
+    assert "SAFE MODE: sender ikke SIGTERM" in caplog.text
+    assert session.poll() is AuthState.CANCELLED

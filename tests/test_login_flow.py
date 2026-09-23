@@ -7,7 +7,7 @@ from onedrive_gui.login_flow import FlowState, LoginFlow
 from onedrive_gui.registry import Registry
 
 from conftest import RecordingRun, make_account_dir, make_unit
-from fakes import FakeClock, FakePopen, ScriptedRun
+from fakes import FakeClock, FakePopen, FakeSignals, ScriptedRun
 
 AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1"
 CODE_URL = "https://login.microsoftonline.com/common/oauth2/nativeclient?code=abc"
@@ -21,7 +21,8 @@ def popen():
 def make_flow(home, tmp_path, popen, run, confdir, name="Firma 2", service=""):
     registry = Registry.for_home(home)
     flow = LoginFlow(confdir, name, service, registry=registry, home=home,
-                     popen=popen, run=run, clock=FakeClock(), tmp_base=tmp_path)
+                     popen=popen, run=run, clock=FakeClock(), tmp_base=tmp_path,
+                     send_signal=FakeSignals())
     flow.start()
     return flow
 

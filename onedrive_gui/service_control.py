@@ -53,10 +53,16 @@ def cancel_resync(service: str, *, home: Path | None = None, run: Run | None = N
     """Knappen "Afbryd resync": stop servicen, og husk, at resync er afbrudt.
 
     Fejler ``systemctl stop``, giver funktionen ``SystemctlError`` og skriver ingen markering.
+    I sikker tilstand når stoppet kun ``systemctl``, når kalderen giver sin egen ``run``.
+    Ellers skriver funktionen heller ingen markering (feature 0011).
     """
     unit = read_units([service], run=run).get(service)
     invocation = unit.invocation_id if unit is not None else ""
     stop(service, run=run)
+    injected = run is not None and run is not sideeffects.run
+    if sideeffects.safe_mode() and not injected:
+        log.warning("SAFE MODE: skriver ikke markeringen for %s", service)
+        return
     mark_resync_cancelled(service, invocation, home=home)
 
 

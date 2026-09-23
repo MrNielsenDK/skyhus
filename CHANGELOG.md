@@ -2,6 +2,12 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.7.1] - 2026-09-23
+
+### Fixed
+- I sikker tilstand skriver "Afbryd resync" ikke markeringen i `~/.config/onedrive-gui/state.json`. Kortet bliver ved med at vise "Resynkroniserer", fordi servicen kører videre. Se `docs/features/0011-sikker-tilstand-markering-og-signaler.md`.
+- Login stopper `onedrive`-processen med `sideeffects.signal_process`. I sikker tilstand sender applikationen intet signal. En AST-test forbyder direkte signaler i alle moduler. Se `docs/features/0011-sikker-tilstand-markering-og-signaler.md`.
+
 ## [0.7.0] - 2026-09-23
 
 ### Added
