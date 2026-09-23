@@ -6,7 +6,7 @@ Stierne er erstattet med opdigtede stier.
 
 import json
 
-from onedrive_gui import journal
+from skyhus import journal
 
 from fakes import ScriptedRun
 

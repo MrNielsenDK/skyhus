@@ -15,8 +15,8 @@ QtQml = pytest.importorskip("PySide6.QtQml")
 from PySide6 import QtCore  # noqa: E402
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl  # noqa: E402
 
-from onedrive_gui.app import QML_DIR, load_main  # noqa: E402
-from onedrive_gui.viewmodels import AppController  # noqa: E402
+from skyhus.app import QML_DIR, load_main  # noqa: E402
+from skyhus.viewmodels import AppController  # noqa: E402
 
 from conftest import make_account_dir  # noqa: E402
 from fakes import FakeGraph, ScriptedRun, folder  # noqa: E402
@@ -188,7 +188,7 @@ def test_main_qml_uses_theme_background(load, home):
     assert warnings == []
     content = root.findChild(QObject, "content")
     sidebar = root.findChild(QObject, "sidebar")
-    theme = engine.singletonInstance("OneDriveGui", "Theme")
+    theme = engine.singletonInstance("Skyhus", "Theme")
     assert content.property("color") == theme.property("windowBg")
     assert sidebar.property("color") == theme.property("sidebarBg")
     assert isinstance(content.property("color"), QColor)
@@ -340,10 +340,10 @@ def test_safe_mode_shows_banner(load, home):
 
 
 def test_banner_is_hidden_without_safe_mode(load, home, monkeypatch):
-    from onedrive_gui import sideeffects
+    from skyhus import sideeffects
     monkeypatch.setenv("HOME", str(sideeffects.real_home()))
     monkeypatch.delenv(sideeffects.ENV_VAR)
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
     assert sideeffects.safe_mode() is False
 
     engine, controller, warnings = load(home)

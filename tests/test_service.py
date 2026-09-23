@@ -2,8 +2,8 @@
 
 import pytest
 
-from onedrive_gui import service
-from onedrive_gui.service import ServiceExistsError, SystemctlError
+from skyhus import service
+from skyhus.service import ServiceExistsError, SystemctlError
 
 from conftest import RecordingRun
 

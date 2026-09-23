@@ -5,9 +5,9 @@ Svarene fra ``systemctl show`` er optaget fra en rigtig maskine.
 
 from datetime import datetime
 
-from onedrive_gui import service_state
-from onedrive_gui.accounts import Account
-from onedrive_gui.service_state import StatusReader, format_since
+from skyhus import service_state
+from skyhus.accounts import Account
+from skyhus.service_state import StatusReader, format_since
 
 from conftest import make_account_dir
 from fakes import ScriptedRun
@@ -548,7 +548,7 @@ def test_resyncing_counts_as_settled_after_a_click():
 # Resync afbrudt (feature 0010)
 
 def state_file(home):
-    return home / ".config" / "onedrive-gui" / "state.json"
+    return home / ".config" / "skyhus" / "state.json"
 
 
 def mark(home, service="onedrive-privat.service", invocation=INVOCATION):

@@ -2,7 +2,7 @@
 
 import pytest
 
-from onedrive_gui.provision import provision_account
+from skyhus.provision import provision_account
 
 
 def test_config_contains_exactly_the_chosen_sync_dir(home):

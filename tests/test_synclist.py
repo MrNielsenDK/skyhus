@@ -2,7 +2,7 @@
 
 import pytest
 
-from onedrive_gui.synclist import (
+from skyhus.synclist import (
     CheckState,
     Selection,
     SelectionError,

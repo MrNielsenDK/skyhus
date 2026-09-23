@@ -1,6 +1,6 @@
 """Kørende onedrive-processer for en config-mappe (feature 0002)."""
 
-from onedrive_gui.process import find_processes
+from skyhus.process import find_processes
 
 
 def add_process(proc, pid, args, cgroup="0::/user.slice/user@1000.service/app.slice/x.scope\n"):

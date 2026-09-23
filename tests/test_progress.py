@@ -4,8 +4,8 @@ Linjerne er optaget fra en rigtig ``onedrive --resync`` (v2.5) på en privat
 konto. Alle filnavne og stier er erstattet med opdigtede navne.
 """
 
-from onedrive_gui import progress
-from onedrive_gui.progress import SyncProgress
+from skyhus import progress
+from skyhus.progress import SyncProgress
 
 # Et forkortet forløb fra en rigtig resync. Rækkefølgen og linjernes form er klientens.
 RESYNC_LINES = [

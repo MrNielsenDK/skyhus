@@ -6,10 +6,10 @@ Testene kalder ikke onedrive eller systemctl. ``ScriptedRun`` og
 
 import pytest
 
-from onedrive_gui import apply, sideeffects
-from onedrive_gui.accounts import ONEDRIVE, Account
-from onedrive_gui.apply import ApplyError, execute, prepare
-from onedrive_gui.synclist import SelectionError
+from skyhus import apply, sideeffects
+from skyhus.accounts import ONEDRIVE, Account
+from skyhus.apply import ApplyError, execute, prepare
+from skyhus.synclist import SelectionError
 
 from conftest import make_account_dir
 from fakes import FakeSignals, FakeStoppablePopen, FakeUploadPopen, ScriptedRun
@@ -42,7 +42,7 @@ def make_account(home, *, synced=True, service=SERVICE, sync_list="/A/\n/B/\n"):
 
 
 def drop_in(home):
-    return home / ".config" / "systemd" / "user" / f"{SERVICE}.d" / "zz-onedrive-gui-resync.conf"
+    return home / ".config" / "systemd" / "user" / f"{SERVICE}.d" / "zz-skyhus-resync.conf"
 
 
 def test_synced_account_runs_steps_in_order(home, proc):

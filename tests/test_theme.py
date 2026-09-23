@@ -11,9 +11,9 @@ QtGui = pytest.importorskip("PySide6.QtGui")
 from PySide6.QtCore import QEasingCurve, QObject, Qt, Signal  # noqa: E402
 from PySide6.QtGui import QColor, QFontDatabase, QPalette  # noqa: E402
 
-from onedrive_gui import theme  # noqa: E402
-from onedrive_gui.accounts import Account  # noqa: E402
-from onedrive_gui.app import ASSETS_DIR, QML_DIR, load_fonts  # noqa: E402
+from skyhus import theme  # noqa: E402
+from skyhus.accounts import Account  # noqa: E402
+from skyhus.app import ASSETS_DIR, QML_DIR, load_fonts  # noqa: E402
 
 COLOR_TOKENS = ["windowBg", "sidebarBg", "cardBg", "separator", "textPrimary", "textSecondary",
                 "accent", "onAccent", "accentText", "success", "warning", "danger"]

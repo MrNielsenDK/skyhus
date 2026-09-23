@@ -2,9 +2,9 @@
 
 import pytest
 
-from onedrive_gui.discovery import discover_accounts
-from onedrive_gui.login_flow import FlowState, LoginFlow
-from onedrive_gui.registry import Registry
+from skyhus.discovery import discover_accounts
+from skyhus.login_flow import FlowState, LoginFlow
+from skyhus.registry import Registry
 
 from conftest import RecordingRun, make_account_dir, make_unit
 from fakes import FakeClock, FakePopen, FakeSignals, ScriptedRun

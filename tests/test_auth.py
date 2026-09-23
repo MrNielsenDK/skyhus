@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from onedrive_gui.auth import AuthSession, AuthState, parse_redirect
+from skyhus.auth import AuthSession, AuthState, parse_redirect
 
 from conftest import make_account_dir
 from fakes import FakeClock, FakePopen, FakeSignals
@@ -300,7 +300,7 @@ class StubbornProcess:
 
 
 def test_process_that_ignores_sigterm_gets_sigkill(home, tmp_path, clock, signals):
-    from onedrive_gui.auth import STOP_TIMEOUT_SECONDS
+    from skyhus.auth import STOP_TIMEOUT_SECONDS
     confdir = make_account_dir(home, "onedrive-firma-2", config="")
     process = StubbornProcess()
     session = AuthSession(confdir, popen=lambda args, **kw: process, clock=clock,

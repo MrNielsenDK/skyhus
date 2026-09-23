@@ -2,8 +2,8 @@
 
 import pytest
 
-from onedrive_gui import service_control
-from onedrive_gui.service import SystemctlError
+from skyhus import service_control
+from skyhus.service import SystemctlError
 
 from fakes import ScriptedRun
 
@@ -28,7 +28,7 @@ ExecStart=/usr/bin/onedrive --monitor --verbose --confdir="%h/.config/onedrive-p
 
 def drop_in(home):
     return (home / ".config" / "systemd" / "user" / "onedrive-privat.service.d"
-            / "zz-onedrive-gui-resync.conf")
+            / "zz-skyhus-resync.conf")
 
 
 def test_effective_exec_start():
@@ -56,7 +56,7 @@ def test_restart_with_resync_uses_drop_in_and_removes_it(home):
         ["systemctl", "--user", "daemon-reload"],
     ]
     assert seen["drop_in"] == (
-        "# Midlertidig. onedrive-gui fjerner filen efter genstart.\n"
+        "# Midlertidig. Skyhus fjerner filen efter genstart.\n"
         "[Service]\nExecStart=\n"
         'ExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-privat" --resync --resync-auth\n')
     assert not drop_in(home).exists()
@@ -219,7 +219,7 @@ SHOW_RESYNC = ("Id=onedrive-privat.service\nLoadState=loaded\nActiveState=active
 
 
 def test_cancel_resync_stops_the_service_and_writes_the_mark(home):
-    from onedrive_gui import service_state
+    from skyhus import service_state
     seen = {}
 
     def on_call(args):
@@ -234,11 +234,11 @@ def test_cancel_resync_stops_the_service_and_writes_the_mark(home):
     assert run.calls[-1] == ["systemctl", "--user", "stop", "onedrive-privat.service"]
     assert seen["mark_before_stop"] == {}
     assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": "abc123"}
-    assert (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert (home / ".config" / "skyhus" / "state.json").exists()
 
 
 def test_failing_stop_writes_no_mark(home):
-    from onedrive_gui import service_state
+    from skyhus import service_state
     run = ScriptedRun(outputs={"show": SHOW_RESYNC}, fail={"stop"},
                       stderr="Failed to stop onedrive-privat.service: Access denied")
 
@@ -246,7 +246,7 @@ def test_failing_stop_writes_no_mark(home):
         service_control.cancel_resync("onedrive-privat.service", home=home, run=run)
 
     assert service_state.cancelled_resyncs(home) == {}
-    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert not (home / ".config" / "skyhus" / "state.json").exists()
 
 
 def test_cancel_resync_in_safe_mode_does_not_reach_run(home, monkeypatch):
@@ -262,21 +262,21 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(home, monkeypatch):
 def test_cancel_resync_in_safe_mode_writes_no_mark(home, monkeypatch, caplog):
     import logging
     import subprocess
-    from onedrive_gui import service_state
+    from skyhus import service_state
     monkeypatch.setattr(subprocess, "run", ScriptedRun(outputs={"show": SHOW_RESYNC}))
 
     with caplog.at_level(logging.WARNING):
         service_control.cancel_resync("onedrive-privat.service", home=home)
 
     assert service_state.cancelled_resyncs(home) == {}
-    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert not (home / ".config" / "skyhus" / "state.json").exists()
     assert "SAFE MODE: skriver ikke markeringen for onedrive-privat.service" in caplog.text
 
 
 def test_cancel_resync_in_safe_mode_with_sideeffects_run_writes_no_mark(home, monkeypatch):
     """Controlleren giver ``sideeffects.run`` videre. Det tæller ikke som en injiceret ``run``."""
     import subprocess
-    from onedrive_gui import service_state, sideeffects
+    from skyhus import service_state, sideeffects
     monkeypatch.setattr(subprocess, "run", ScriptedRun(outputs={"show": SHOW_RESYNC}))
 
     service_control.cancel_resync("onedrive-privat.service", home=home, run=sideeffects.run)
@@ -285,7 +285,7 @@ def test_cancel_resync_in_safe_mode_with_sideeffects_run_writes_no_mark(home, mo
 
 
 def test_cancel_resync_in_safe_mode_with_injected_run_writes_the_mark(home):
-    from onedrive_gui import service_state, sideeffects
+    from skyhus import service_state, sideeffects
     assert sideeffects.safe_mode()
     run = ScriptedRun(outputs={"show": SHOW_RESYNC})
 
@@ -296,7 +296,7 @@ def test_cancel_resync_in_safe_mode_with_injected_run_writes_the_mark(home):
 
 
 def test_start_after_cancelled_resync_removes_the_mark(home):
-    from onedrive_gui import service_state
+    from skyhus import service_state
     service_state.mark_resync_cancelled("onedrive-privat.service", "abc123", home=home)
     clock = FakeClock()
 
@@ -307,7 +307,7 @@ def test_start_after_cancelled_resync_removes_the_mark(home):
 
 
 def test_failing_start_keeps_the_mark(home):
-    from onedrive_gui import service_state
+    from skyhus import service_state
     service_state.mark_resync_cancelled("onedrive-privat.service", "abc123", home=home)
     clock = FakeClock()
 

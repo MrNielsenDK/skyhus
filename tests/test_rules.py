@@ -2,7 +2,7 @@
 
 import pytest
 
-from onedrive_gui.rules import RuleSet, UnknownRuleError
+from skyhus.rules import RuleSet, UnknownRuleError
 
 
 @pytest.mark.parametrize("rule", ["/", "/*", "!/*", "-/", "./Arbejde", "/A/../B/", "/A**/", "!"])

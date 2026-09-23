@@ -39,9 +39,11 @@ def collect_qt_garbage():
 @pytest.fixture(autouse=True)
 def safe_mode_on(monkeypatch):
     """Slå sikker tilstand til, og vurdér den forfra i hver test."""
-    from onedrive_gui import sideeffects
+    from skyhus import sideeffects
 
-    monkeypatch.setenv("ONEDRIVE_GUI_SAFE_MODE", "1")
+    monkeypatch.setenv("SKYHUS_SAFE_MODE", "1")
+    # Den gamle variabel (feature 0012) må ikke holde sikker tilstand tændt i tests af normal tilstand.
+    monkeypatch.delenv("ONEDRIVE_GUI_SAFE_MODE", raising=False)
     sideeffects.reset()
     yield
     sideeffects.reset()

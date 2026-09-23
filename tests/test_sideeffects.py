@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from onedrive_gui import sideeffects
+from skyhus import sideeffects
 
 from conftest import RecordingRun
 
@@ -50,7 +50,7 @@ def normal_mode(monkeypatch):
     """Den rigtige HOME uden miljøvariablen og uden --safe."""
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
     assert sideeffects.safe_mode() is False
 
 
@@ -59,7 +59,7 @@ def normal_mode(monkeypatch):
 def test_env_var_turns_safe_mode_on(monkeypatch):
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.setenv(sideeffects.ENV_VAR, "1")
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
 
     assert sideeffects.safe_mode() is True
 
@@ -67,7 +67,7 @@ def test_env_var_turns_safe_mode_on(monkeypatch):
 def test_safe_flag_turns_safe_mode_on(monkeypatch):
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
-    sideeffects.init(["onedrive-gui", "--safe"])
+    sideeffects.init(["skyhus", "--safe"])
 
     assert sideeffects.safe_mode() is True
 
@@ -75,7 +75,7 @@ def test_safe_flag_turns_safe_mode_on(monkeypatch):
 def test_fake_home_turns_safe_mode_on(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
 
     assert sideeffects.safe_mode() is True
 
@@ -83,7 +83,7 @@ def test_fake_home_turns_safe_mode_on(monkeypatch, tmp_path):
 def test_real_home_without_env_and_flag_is_normal(monkeypatch):
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
 
     assert sideeffects.safe_mode() is False
 
@@ -91,7 +91,7 @@ def test_real_home_without_env_and_flag_is_normal(monkeypatch):
 def test_env_var_zero_cannot_turn_off_fake_home(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv(sideeffects.ENV_VAR, "0")
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
 
     assert sideeffects.safe_mode() is True
 
@@ -99,7 +99,7 @@ def test_env_var_zero_cannot_turn_off_fake_home(monkeypatch, tmp_path):
 def test_result_is_fixed_after_start(monkeypatch):
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.setenv(sideeffects.ENV_VAR, "1")
-    sideeffects.init(["onedrive-gui"])
+    sideeffects.init(["skyhus"])
     monkeypatch.delenv(sideeffects.ENV_VAR)
 
     assert sideeffects.safe_mode() is True
@@ -194,7 +194,7 @@ def test_guard_write_blocks_systemd_unit_under_real_home(caplog):
 
 
 def test_guard_write_allows_gui_dir_under_real_home():
-    assert sideeffects.guard_write(REAL_HOME / ".config" / "onedrive-gui" / "accounts.json") is True
+    assert sideeffects.guard_write(REAL_HOME / ".config" / "skyhus" / "accounts.json") is True
 
 
 def test_guard_write_allows_path_outside_real_home(tmp_path):
@@ -261,7 +261,7 @@ def test_signal_to_a_process_that_is_gone_is_ignored(normal_mode):
 
 
 def test_guard_write_allows_state_json_under_real_home():
-    assert sideeffects.guard_write(REAL_HOME / ".config" / "onedrive-gui" / "state.json") is True
+    assert sideeffects.guard_write(REAL_HOME / ".config" / "skyhus" / "state.json") is True
 
 
 # Kildekoden
@@ -368,3 +368,29 @@ def test_no_module_sends_signals_directly(path):
              and (node.func.attr in SIGNAL_METHODS
                   or (isinstance(node.func.value, ast.Name) and (node.func.value.id, node.func.attr) in SIGNAL_CALLS))]
     assert found == []
+
+
+# Skyhus (feature 0012)
+
+def test_skyhus_safe_mode_env_var_turns_on_safe_mode(monkeypatch):
+    monkeypatch.delenv(sideeffects.LEGACY_ENV_VAR, raising=False)
+    monkeypatch.setenv("SKYHUS_SAFE_MODE", "1")
+
+    assert sideeffects.ENV_VAR == "SKYHUS_SAFE_MODE"
+    assert sideeffects.init(["skyhus"]) is True
+
+
+def test_old_env_var_still_turns_on_safe_mode(monkeypatch):
+    monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
+    monkeypatch.setenv("ONEDRIVE_GUI_SAFE_MODE", "1")
+
+    assert sideeffects.LEGACY_ENV_VAR == "ONEDRIVE_GUI_SAFE_MODE"
+    assert "ONEDRIVE_GUI_SAFE_MODE=1" in sideeffects.reasons(["skyhus"])
+    assert sideeffects.init(["skyhus"]) is True
+
+
+def test_safe_mode_does_not_allow_the_old_config_dir():
+    sideeffects.init(["skyhus", "--safe"])
+
+    old_dir = "onedrive" + "-gui"
+    assert sideeffects.guard_write(REAL_HOME / ".config" / old_dir / "accounts.json") is False

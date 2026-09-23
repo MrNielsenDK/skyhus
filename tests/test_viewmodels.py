@@ -8,8 +8,8 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtCore = pytest.importorskip("PySide6.QtCore")
 
-from onedrive_gui.registry import Registry  # noqa: E402
-from onedrive_gui.viewmodels import AppController  # noqa: E402
+from skyhus.registry import Registry  # noqa: E402
+from skyhus.viewmodels import AppController  # noqa: E402
 
 from conftest import RecordingRun, make_account_dir  # noqa: E402
 from fakes import FakeGraph, FakePopen, FakeSignals, FakeStoppablePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
@@ -297,7 +297,7 @@ def test_only_adding_folders_skips_confirmation(app, home, tmp_path):
 
 
 def test_account_model_gives_initials_and_avatar_color(home):
-    from onedrive_gui import theme
+    from skyhus import theme
 
     make_account_dir(home, "onedrive-firma", config='sync_dir = "~/OneDrive-Firma"\n')
     Registry.for_home(home).add(home / ".config" / "onedrive-firma", "Firma 2")
@@ -394,7 +394,7 @@ def test_resync_waits_for_confirmation(app, home, tmp_path):
     confdir = service_account(home)
     cat = '[Service]\nExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-x"\n'
     seen = {}
-    drop_in = home / ".config" / "systemd" / "user" / "onedrive-x.service.d" / "zz-onedrive-gui-resync.conf"
+    drop_in = home / ".config" / "systemd" / "user" / "onedrive-x.service.d" / "zz-skyhus-resync.conf"
 
     def on_call(args):
         if "restart" in args:
@@ -807,7 +807,7 @@ def test_force_close_closes_while_work_runs_and_logs_a_warning(app, home, tmp_pa
     assert controller.requestClose() is False
     text = controller.busyText
 
-    with caplog.at_level(logging.WARNING, logger="onedrive_gui.viewmodels"):
+    with caplog.at_level(logging.WARNING, logger="skyhus.viewmodels"):
         controller.forceClose()
 
     assert emitted == [True]
@@ -1249,7 +1249,7 @@ def test_confirmed_cancel_stops_the_service_and_shows_resync_cancelled(app, home
     assert stops(run) == [["systemctl", "--user", "stop", "onedrive-x.service"]]
     assert controller.cancelResyncAccountName == ""
     import json
-    data = json.loads((home / ".config" / "onedrive-gui" / "state.json").read_text())
+    data = json.loads((home / ".config" / "skyhus" / "state.json").read_text())
     assert data["resync_cancelled"] == {"onedrive-x.service": {"invocation": INVOCATION}}
     assert role(controller, "serviceActionLabel") == "Genstart med resync"
     assert role(controller, "serviceCancellable") is False
@@ -1265,7 +1265,7 @@ def test_failing_stop_shows_the_error_and_writes_no_mark(app, home, tmp_path):
     wait_until(lambda: role(controller, "serviceBusy") is False, controller)
 
     assert role(controller, "serviceMessage") == "Failed to stop onedrive-x.service: Access denied"
-    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert not (home / ".config" / "skyhus" / "state.json").exists()
 
 
 def test_request_close_is_false_while_the_resync_is_cancelled(app, home, tmp_path):
@@ -1305,7 +1305,7 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(app, home, tmp_path, monk
     assert role(controller, "serviceMessage") == ""
     assert stops(underlying) == []
     assert [c for c in underlying.calls if c[0] == "systemctl" and c[2] in CHANGING_SYSTEMCTL] == []
-    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+    assert not (home / ".config" / "skyhus" / "state.json").exists()
     read_status_now(controller)
     assert role(controller, "serviceLabel") == "Resynkroniserer"
 

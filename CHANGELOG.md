@@ -2,6 +2,13 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.8.0] - 2026-09-23
+
+### Changed
+- Applikationen hedder nu Skyhus. Pakken er `skyhus`, kommandoen er `skyhus`, og vinduet har titlen "Skyhus". Se `docs/features/0012-omdoeb-til-skyhus.md`.
+- Applikationen gemmer `accounts.json` og `state.json` i `~/.config/skyhus/`. Drop-in'en for resync hedder `zz-skyhus-resync.conf`. Se `docs/features/0012-omdoeb-til-skyhus.md`.
+- Miljøvariablen for sikker tilstand er `SKYHUS_SAFE_MODE`. Den gamle `ONEDRIVE_GUI_SAFE_MODE` slår stadig sikker tilstand til. Se `docs/features/0012-omdoeb-til-skyhus.md`.
+
 ## [0.7.1] - 2026-09-23
 
 ### Fixed

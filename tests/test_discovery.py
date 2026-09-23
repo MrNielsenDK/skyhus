@@ -1,6 +1,6 @@
 """Kontoopdagelse (feature 0001)."""
 
-from onedrive_gui.discovery import (
+from skyhus.discovery import (
     discover_accounts,
     find_service,
     read_sync_dir,
@@ -33,8 +33,8 @@ def test_refresh_token_means_logged_in(home):
     assert accounts["onedrive-b"].logged_in is False
 
 
-def test_onedrive_gui_dir_is_not_an_account(home):
-    gui = home / ".config" / "onedrive-gui"
+def test_skyhus_dir_is_not_an_account(home):
+    gui = home / ".config" / "skyhus"
     gui.mkdir()
     (gui / "accounts.json").write_text("{}")
     (gui / "config").write_text("")

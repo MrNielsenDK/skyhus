@@ -1,6 +1,6 @@
 """sync_root_files og skip_dir i kontoens config (feature 0002)."""
 
-from onedrive_gui.config import (
+from skyhus.config import (
     DEFAULT_SKIP_FILE,
     read_skip_dirs,
     read_skip_dotfiles,

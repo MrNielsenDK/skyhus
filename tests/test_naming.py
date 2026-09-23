@@ -2,8 +2,8 @@
 
 import pytest
 
-from onedrive_gui.accounts import Account
-from onedrive_gui.naming import (
+from skyhus.accounts import Account
+from skyhus.naming import (
     NamingError,
     plan_new_account,
     slugify,
@@ -81,9 +81,11 @@ def test_name_without_usable_letters_fails(home):
         plan_new_account("!!!", [], home)
 
 
-def test_slug_gui_is_reserved(home):
-    with pytest.raises(NamingError):
-        plan_new_account("GUI", [], home)
+def test_name_skyhus_gives_its_own_confdir(home):
+    """Applikationens mappe ``~/.config/skyhus`` kan ikke forveksles med en konto (feature 0012)."""
+    plan = plan_new_account("Skyhus", [], home)
+
+    assert plan.confdir == home / ".config" / "onedrive-skyhus"
 
 
 def test_rename_may_keep_own_name(home):

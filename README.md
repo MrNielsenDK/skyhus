@@ -1,6 +1,6 @@
-# onedrive-gui
+# Skyhus
 
-onedrive-gui er et Qt-vindue til flere OneDrive-konti på den samme maskine.
+Skyhus er et Qt-vindue til flere OneDrive-konti på den samme maskine.
 Applikationen bruger klienten [abraunegg/onedrive](https://github.com/abraunegg/onedrive).
 Hver konto har sin egen config-mappe og sin egen systemd-user-service.
 
@@ -109,10 +109,10 @@ Uden pakken starter applikationen, men login-vinduet viser en fejl.
 Kør denne kommando fra projektets rod:
 
 ```bash
-python3 -m onedrive_gui.app
+python3 -m skyhus.app
 ```
 
-Du kan også installere kommandoen `onedrive-gui` med `pip install --user -e .`.
+Du kan også installere kommandoen `skyhus` med `pip install --user -e .`.
 
 ## Sikker tilstand
 
@@ -123,12 +123,12 @@ Brugerfladen og alle forløb virker stadig, så du kan afprøve dem og tage skæ
 Start applikationen i sikker tilstand med denne kommando:
 
 ```bash
-python3 -m onedrive_gui.app --safe
+python3 -m skyhus.app --safe
 ```
 
 Sikker tilstand er også slået til i disse 2 tilfælde:
 
-- Miljøvariablen `ONEDRIVE_GUI_SAFE_MODE` er `1`.
+- Miljøvariablen `SKYHUS_SAFE_MODE` er `1`.
 - `HOME` er en anden mappe end din rigtige hjemmemappe. Du kan ikke slå sikker tilstand fra i det tilfælde.
 
 I sikker tilstand gælder disse regler:
@@ -137,7 +137,7 @@ I sikker tilstand gælder disse regler:
 - Alle andre `systemctl`-kommandoer kører ikke. Applikationen svarer, at de lykkedes.
 - Applikationen starter ikke `onedrive`. Et login ender med fejlen "Sikker tilstand: onedrive blev ikke startet".
 - Applikationen flytter ingen filer til papirkurven.
-- Applikationen skriver ingen filer under din rigtige hjemmemappe. Undtagelsen er `~/.config/onedrive-gui/`.
+- Applikationen skriver ingen filer under din rigtige hjemmemappe. Undtagelsen er `~/.config/skyhus/`.
 - Kald til Microsoft Graph kører som normalt. Kaldene læser kun.
 
 Hver blokeret handling giver en linje i loggen, der starter med `SAFE MODE:`.
@@ -153,7 +153,7 @@ Testen af `LoginSheet.qml` springer over, hvis QtWebEngine mangler.
 
 ## Filer
 
-- `~/.config/onedrive-gui/accounts.json` gemmer visningsnavnene.
-- `~/.config/onedrive-gui/state.json` husker de services, hvor du har afbrudt en resync.
+- `~/.config/skyhus/accounts.json` gemmer visningsnavnene.
+- `~/.config/skyhus/state.json` husker de services, hvor du har afbrudt en resync.
 - `~/.config/onedrive-<slug>/config` er config-filen for en ny konto.
 - `~/.config/systemd/user/onedrive-<slug>.service` er servicen for en ny konto.

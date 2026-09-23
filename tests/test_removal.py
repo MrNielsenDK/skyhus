@@ -2,8 +2,8 @@
 
 import pytest
 
-from onedrive_gui.removal import Rules, find_removed, format_size, total_size
-from onedrive_gui.rules import RuleSet
+from skyhus.removal import Rules, find_removed, format_size, total_size
+from skyhus.rules import RuleSet
 
 ALL = Rules(None, False)
 

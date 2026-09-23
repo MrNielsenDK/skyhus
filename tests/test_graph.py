@@ -7,7 +7,7 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from onedrive_gui.graph import (
+from skyhus.graph import (
     CLIENT_ID,
     GRAPH_URL,
     TOKEN_URL,

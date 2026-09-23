@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "onedrive-gui"
-version = "0.7.1"
+name = "skyhus"
+version = "0.8.0"
 description = "Qt-brugerflade til flere OneDrive-konti med abraunegg/onedrive"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,13 +14,13 @@ dependencies = ["PySide6>=6.8"]
 test = ["pytest"]
 
 [project.scripts]
-onedrive-gui = "onedrive_gui.app:main"
+skyhus = "skyhus.app:main"
 
 [tool.setuptools]
-packages = ["onedrive_gui"]
+packages = ["skyhus"]
 
 [tool.setuptools.package-data]
-onedrive_gui = ["qml/*.qml", "qml/sheets/*.qml", "qml/components/*.qml",
+skyhus = ["qml/*.qml", "qml/sheets/*.qml", "qml/components/*.qml",
                 "assets/fonts/*", "assets/icons/*"]
 
 [tool.pytest.ini_options]

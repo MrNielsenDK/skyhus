@@ -2,14 +2,14 @@
 
 import json
 
-from onedrive_gui.discovery import discover_accounts
-from onedrive_gui.registry import Registry, default_name
+from skyhus.discovery import discover_accounts
+from skyhus.registry import Registry, default_name
 
 from conftest import make_account_dir
 
 
 def registry_path(home):
-    return home / ".config" / "onedrive-gui" / "accounts.json"
+    return home / ".config" / "skyhus" / "accounts.json"
 
 
 def test_rename_is_saved_and_survives_restart(home):
