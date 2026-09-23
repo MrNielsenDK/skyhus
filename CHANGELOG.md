@@ -2,6 +2,13 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.7.0] - 2026-09-23
+
+### Added
+- Arket "Ændrer mappevalg" har knappen "Afbryd", mens applikationen uploader lokale ændringer. Et klik stopper uploaden. Applikationen skriver ikke `sync_list` og flytter intet til papirkurven. Kørte servicen før, starter applikationen den igen uden `--resync`. Se `docs/features/0010-afbryd-upload-og-resync.md`.
+- Kortet "Service" har knappen "Afbryd resync" under "Resynkroniserer". Efter en bekræftelse stopper applikationen servicen. Kortet viser derefter "Resync afbrudt" med knappen "Genstart med resync". Se `docs/features/0010-afbryd-upload-og-resync.md`.
+- Applikationen husker en afbrudt resync pr. service i `~/.config/onedrive-gui/state.json`. Markeringen forsvinder, når servicen starter igen. Se `docs/features/0010-afbryd-upload-og-resync.md`.
+
 ## [0.6.0] - 2026-09-23
 
 ### Added

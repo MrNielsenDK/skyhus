@@ -220,3 +220,99 @@ class FakeUploadPopen:
         self.kwargs.append(kwargs)
         self.log.append(("popen", args))
         return FakeUploadProcess(args, self.lines, self.returncode, self.on_line, **kwargs)
+
+
+class FakeStoppableUpload:
+    """Svarer til ``onedrive --upload-only``, der kører, til den får et signal (feature 0010).
+
+    Processen skriver ``lines`` og venter derefter. Et signal i ``stops_on`` stopper den.
+    Exit-koden er ``exit_code`` eller ``-signal``. ``signals`` er de signaler, processen fik.
+    """
+
+    def __init__(self, args, lines, stops_on, exit_code=None, on_line=None, **kwargs):
+        import threading
+        self.args = list(args)
+        self.kwargs = kwargs
+        self.pid = 4712
+        self.signals = []
+        self.returncode = None
+        self._lines = list(lines)
+        self._stops_on = set(stops_on)
+        self._exit_code = exit_code
+        self._on_line = on_line
+        self._stopped = threading.Event()
+        self.stdout = self._read()
+
+    def _read(self):
+        for line in self._lines:
+            if self._on_line is not None:
+                self._on_line(line)
+            yield line + "\n"
+        # Sikkerhedsnet: en fejlet test må ikke hænge.
+        if not self._stopped.wait(10) and self.returncode is None:
+            self.returncode = 1
+
+    def receive(self, sig):
+        self.signals.append(sig)
+        if sig in self._stops_on and self.returncode is None:
+            self.returncode = self._exit_code if self._exit_code is not None else -sig
+            self._stopped.set()
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        for _ in self.stdout:
+            pass
+        return self.returncode
+
+
+class FakeStoppablePopen:
+    """Erstatning for ``sideeffects.popen`` med ``FakeStoppableUpload``. ``processes`` er de startede."""
+
+    def __init__(self, lines=(), stops_on=(15,), exit_code=None, on_line=None):
+        self.lines = list(lines)
+        self.stops_on = stops_on
+        self.exit_code = exit_code
+        self.on_line = on_line
+        self.processes = []
+
+    def __call__(self, args, **kwargs):
+        process = FakeStoppableUpload(args, self.lines, self.stops_on, self.exit_code, self.on_line, **kwargs)
+        self.processes.append(process)
+        return process
+
+
+class FakeSignals:
+    """Erstatning for ``sideeffects.signal_process``. ``sent`` er (signal, tidspunkt) for hvert kald."""
+
+    def __init__(self, clock=None):
+        self.clock = clock
+        self.sent = []
+
+    def __call__(self, process, sig):
+        self.sent.append((sig, self.clock() if self.clock is not None else None))
+        receive = getattr(process, "receive", None)
+        if receive is not None:
+            receive(sig)
+
+    @property
+    def signals(self):
+        return [sig for sig, _ in self.sent]
+
+
+class SteppingClock:
+    """Et falsk ur. ``sleep`` flytter uret frem uden at vente."""
+
+    def __init__(self, now=1000.0):
+        import threading
+        self.now = now
+        self._lock = threading.Lock()
+
+    def __call__(self):
+        with self._lock:
+            return self.now
+
+    def sleep(self, seconds):
+        with self._lock:
+            self.now += seconds

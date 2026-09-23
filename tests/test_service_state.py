@@ -543,3 +543,124 @@ def test_read_progress_reads_only_new_lines(home, tmp_path):
 
 def test_resyncing_counts_as_settled_after_a_click():
     assert service_state.RESYNCING in service_state.SETTLED
+
+
+# Resync afbrudt (feature 0010)
+
+def state_file(home):
+    return home / ".config" / "onedrive-gui" / "state.json"
+
+
+def mark(home, service="onedrive-privat.service", invocation=INVOCATION):
+    service_state.mark_resync_cancelled(service, invocation, home=home)
+
+
+def marked_state(home, tmp_path, output):
+    mark(home)
+    return state_of(home, tmp_path, output)
+
+
+def test_marked_inactive_service_is_resync_cancelled(home, tmp_path):
+    state = marked_state(home, tmp_path, unit("onedrive-privat.service", ActiveState="inactive", SubState="dead",
+                                              MainPID="0", InvocationID=INVOCATION))
+
+    assert state.key == service_state.RESYNC_CANCELLED
+    assert state.label == "Resync afbrudt"
+    assert state.action == "resync"
+    assert state.action_label == "Genstart med resync"
+    assert state.since == "i dag kl. 08:36"
+
+
+def test_resync_cancelled_has_no_start_button(home, tmp_path):
+    for active in ("inactive", "failed"):
+        state = marked_state(home, tmp_path, unit("onedrive-privat.service", ActiveState=active, SubState="dead",
+                                                  MainPID="0", Result="signal", InvocationID=INVOCATION))
+
+        assert state.label == "Resync afbrudt"
+        assert state.action_label != "Start"
+
+
+def test_needs_resync_wins_over_resync_cancelled(home, tmp_path):
+    state = marked_state(home, tmp_path, unit("onedrive-privat.service", ActiveState="failed", SubState="failed",
+                                              Result="exit-code", ExecMainStatus="126", MainPID="0",
+                                              InvocationID=INVOCATION))
+
+    assert state.label == "Kræver resync"
+
+
+def test_resyncing_wins_over_resync_cancelled(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START))
+    mark(home, invocation="gammel")
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.label == "Resynkroniserer"
+
+
+def test_resync_cancelled_wins_over_stopped_and_failed(home, tmp_path):
+    stopped = marked_state(home, tmp_path, unit("onedrive-privat.service", ActiveState="inactive",
+                                                SubState="dead", MainPID="0", InvocationID=INVOCATION))
+    failed = marked_state(home, tmp_path, unit("onedrive-privat.service", ActiveState="failed",
+                                               SubState="failed", MainPID="0", Result="timeout",
+                                               ExecMainStatus="9", InvocationID=INVOCATION))
+
+    assert stopped.label == "Resync afbrudt"
+    assert failed.label == "Resync afbrudt"
+
+
+def test_foreign_process_wins_over_resync_cancelled(home, tmp_path):
+    a = account(home, "onedrive-privat", "onedrive-privat.service")
+    add_process(tmp_path / "proc", 555, ["onedrive", f"--confdir={a.confdir}", "--monitor"])
+    mark(home)
+
+    statuses, run = read(home, tmp_path, [a], unit("onedrive-privat.service", ActiveState="inactive",
+                                                   MainPID="0", InvocationID=INVOCATION))
+
+    assert statuses[str(a.confdir)].state.label == "Kører uden for servicen"
+
+
+def test_mark_is_written_per_service_in_state_json(home):
+    import json
+    mark(home, "onedrive-privat.service", "aaa")
+    mark(home, "onedrive.service", "bbb")
+
+    data = json.loads(state_file(home).read_text())
+
+    assert data["resync_cancelled"] == {"onedrive-privat.service": {"invocation": "aaa"},
+                                        "onedrive.service": {"invocation": "bbb"}}
+    assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": "aaa", "onedrive.service": "bbb"}
+
+
+def test_mark_disappears_when_the_service_starts_again(home, tmp_path):
+    mark(home)
+
+    state = state_of(home, tmp_path, unit("onedrive-privat.service", ActiveState="activating",
+                                          SubState="start-pre", InvocationID="ny0000000000"))
+
+    assert state.label == "Starter"
+    assert service_state.cancelled_resyncs(home) == {}
+
+
+def test_mark_stays_while_status_still_shows_the_cancelled_run(home, tmp_path):
+    """``systemctl show`` kan være læst, før stoppet var færdigt. Kørslen er den samme."""
+    mark(home)
+
+    state_of(home, tmp_path, unit("onedrive-privat.service", InvocationID=INVOCATION))
+
+    assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": INVOCATION}
+
+
+def test_clear_mark_keeps_other_services(home):
+    mark(home, "onedrive-privat.service", "aaa")
+    mark(home, "onedrive.service", "bbb")
+
+    service_state.clear_resync_cancelled("onedrive-privat.service", home=home)
+
+    assert service_state.cancelled_resyncs(home) == {"onedrive.service": "bbb"}
+
+
+def test_unreadable_state_json_gives_no_marks(home):
+    state_file(home).parent.mkdir(parents=True)
+    state_file(home).write_text("{ikke json")
+
+    assert service_state.cancelled_resyncs(home) == {}

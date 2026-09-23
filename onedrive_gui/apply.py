@@ -19,12 +19,20 @@ Før første synkronisering findes ``items.sqlite3`` ikke. Så skriver
 (feature 0009). ``step`` er nøglen i ``STEPS``, og ``state`` er ``WAITING``,
 ``RUNNING``, ``DONE`` eller ``FAILED``. Under uploaden og papirkurven er
 ``progress`` en kopi af en ``SyncProgress``. Ellers er den ``None``.
+
+Brugeren kan afbryde uploaden i trin 2 med ``CancelFlag`` (feature 0010).
+Så sender ``execute()`` ``SIGTERM`` til klienten og ``SIGKILL`` efter 30
+sekunder. Derefter ændrer den intet og starter servicen igen uden ``--resync``,
+hvis den kørte før. Trin 2 står som ``CANCELLED``, og resultatet er ``CANCELLED``.
 """
 
 from __future__ import annotations
 
 import logging
+import signal
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -51,6 +59,7 @@ log = logging.getLogger(__name__)
 Run = Callable[..., subprocess.CompletedProcess]
 Popen = Callable[..., object]
 Trash = Callable[[Path], bool]
+SendSignal = Callable[[object, int], None]
 
 STOP, UPLOAD, WRITE, TRASH, RESYNC = 1, 2, 3, 4, 5
 STEPS = {
@@ -66,9 +75,15 @@ WAITING = "waiting"
 RUNNING = "running"
 DONE = "done"
 FAILED = "failed"
+CANCELLED = "cancelled"
+"""Trin 2 og resultatet, når brugeren har afbrudt uploaden (feature 0010)."""
 
 OnStep = Callable[[int, str, "SyncProgress | None"], None]
 UPLOAD_DETAIL_LINES = 5
+CANCEL_POLL_SECONDS = 1
+"""Så ofte ser tråden efter "Afbryd", når klienten ikke skriver nye linjer."""
+KILL_AFTER_SECONDS = 30
+"""Så længe får klienten til at lukke pænt ned efter ``SIGTERM``."""
 
 
 class ApplyError(RuntimeError):
@@ -91,6 +106,45 @@ class Change:
 class Result:
     resynced: bool
     trash_failures: list[Path] = field(default_factory=list)
+    outcome: str = DONE
+    """``DONE`` eller ``CANCELLED``."""
+
+
+class CancelFlag:
+    """Knappen "Afbryd" i trin 2 (feature 0010).
+
+    Hovedtråden kalder ``request()``, og tråden i ``execute()`` læser flaget.
+    Flaget virker kun, mens uploaden kører. Før og efter trin 2 svarer
+    ``request()`` falsk og ændrer intet.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._open = False
+        self._requested = False
+
+    def request(self) -> bool:
+        """Afbryd uploaden. Falsk, hvis trin 2 ikke kører."""
+        with self._lock:
+            if not self._open:
+                return False
+            self._requested = True
+            return True
+
+    def is_set(self) -> bool:
+        with self._lock:
+            return self._requested
+
+    def begin(self) -> None:
+        """Trin 2 begynder. Fra nu kan brugeren afbryde."""
+        with self._lock:
+            self._open = True
+
+    def end(self) -> bool:
+        """Trin 2 er slut. Sandt, hvis brugeren nåede at afbryde."""
+        with self._lock:
+            self._open = False
+            return self._requested
 
 
 def has_synced(confdir: Path) -> bool:
@@ -159,16 +213,26 @@ def _write(change: Change) -> None:
 class Upload:
     """Uploaden i trin 2. Klientens stdout går linje for linje til ``progress``.
 
-    ``process`` er den kørende proces, mens ``run()`` venter på den.
+    ``process`` er den kørende proces, mens ``run()`` venter på den. Med et
+    ``cancel``-flag ser ``run()`` efter "Afbryd" for hver linje og hvert sekund.
     """
 
-    def __init__(self, change: Change, popen: Popen, on_progress: Callable[[SyncProgress], None]):
+    def __init__(self, change: Change, popen: Popen, on_progress: Callable[[SyncProgress], None], *,
+                 cancel: CancelFlag | None = None, send_signal: SendSignal | None = None,
+                 clock: Callable[[], float] | None = None, sleep: Callable[[float], None] | None = None):
         self.command = upload_command(change.account.confdir)
         self.progress = SyncProgress()
         self.process = None
         self._popen = popen
         self._on_progress = on_progress
         self._tail: list[str] = []
+        self._cancel = cancel
+        self._send_signal = send_signal or sideeffects.signal_process
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
+        self._finished = threading.Event()
+        self._signal_lock = threading.Lock()
+        self._terminated_at: float | None = None
 
     def run(self) -> None:
         """Kør uploaden til ende. En fejl giver ``ApplyError`` med de sidste linjer fra klienten."""
@@ -179,13 +243,52 @@ class Upload:
                                        stdin=subprocess.DEVNULL, text=True, errors="replace")
         except OSError as exc:
             raise ApplyError(f"Kan ikke starte {ONEDRIVE}: {exc}") from None
-        if self.process.stdout is not None:
-            for line in self.process.stdout:
-                self._line(line)
-        returncode = self.process.wait()
+        watcher = None
+        if self._cancel is not None:
+            watcher = threading.Thread(target=self._watch, daemon=True)
+            watcher.start()
+        try:
+            if self.process.stdout is not None:
+                for line in self.process.stdout:
+                    self._line(line)
+                    if self._cancel is not None and self._cancel.is_set():
+                        self._terminate()
+            returncode = self.process.wait()
+        finally:
+            self._finished.set()
+        if watcher is not None:
+            watcher.join()
         if returncode != 0:
             detail = "\n".join(self._tail)
             raise ApplyError(f"Uploaden af lokale ændringer fejlede med exit-kode {returncode}.\n{detail}".strip())
+
+    def _watch(self) -> None:
+        """Se efter "Afbryd" hvert sekund. Stop processen, hvis brugeren har klikket."""
+        while not self._finished.wait(CANCEL_POLL_SECONDS):
+            if self._cancel.is_set():
+                self._terminate()
+                self._kill_after_grace()
+                return
+
+    def _terminate(self) -> None:
+        with self._signal_lock:
+            if self._terminated_at is not None:
+                return
+            self._terminated_at = self._clock()
+        log.info("Afbryder uploaden: sender SIGTERM til %s", " ".join(self.command))
+        self._send_signal(self.process, signal.SIGTERM)
+
+    def _stopped(self) -> bool:
+        return self._finished.is_set() or self.process.poll() is not None
+
+    def _kill_after_grace(self) -> None:
+        """Send ``SIGKILL``, hvis processen ikke er stoppet 30 sekunder efter ``SIGTERM``."""
+        while not self._stopped():
+            if self._clock() - self._terminated_at >= KILL_AFTER_SECONDS:
+                log.warning("Uploaden stoppede ikke inden %s sekunder. Sender SIGKILL.", KILL_AFTER_SECONDS)
+                self._send_signal(self.process, signal.SIGKILL)
+                return
+            self._sleep(CANCEL_POLL_SECONDS)
 
     def _line(self, line: str) -> None:
         text = line.strip()
@@ -204,9 +307,32 @@ def _report(on_step: OnStep | None, step: int, state: str, progress: SyncProgres
         on_step(step, state, progress.snapshot() if progress is not None else None)
 
 
+def _upload(upload: Upload, cancel: CancelFlag | None) -> bool:
+    """Kør uploaden. Sandt, hvis brugeren afbrød den. En afbrudt upload er ikke en fejl."""
+    if cancel is None:
+        upload.run()
+        return False
+    cancel.begin()
+    try:
+        upload.run()
+    except ApplyError:
+        if cancel.end():
+            return True
+        raise
+    # Slutter uploaden med exit-kode 0, idet brugeren klikker, er ændringen stadig afbrudt.
+    return cancel.end()
+
+
 def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
             popen: Popen | None = None, trash: Trash | None = None, proc_root: Path = PROC_ROOT,
-            on_step: OnStep | None = None) -> Result:
+            on_step: OnStep | None = None, cancel: CancelFlag | None = None,
+            service_active: bool = True, send_signal: SendSignal | None = None,
+            clock: Callable[[], float] | None = None,
+            sleep: Callable[[float], None] | None = None) -> Result:
+    """Udfør ændringen. ``service_active`` er falsk, hvis servicen var stoppet før.
+
+    Så starter ``execute()`` ikke servicen igen efter en fejl eller en afbrydelse.
+    """
     run = run or sideeffects.run
     popen = popen or sideeffects.popen
     trash = trash or default_trash
@@ -236,9 +362,15 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
                              + _describe_processes(remaining))
         _report(on_step, STOP, DONE)
         step = UPLOAD
-        upload = Upload(change, popen, lambda progress: _report(on_step, UPLOAD, RUNNING, progress))
+        upload = Upload(change, popen, lambda progress: _report(on_step, UPLOAD, RUNNING, progress),
+                        cancel=cancel, send_signal=send_signal, clock=clock, sleep=sleep)
         _report(on_step, UPLOAD, RUNNING, upload.progress)
-        upload.run()
+        if _upload(upload, cancel):
+            log.info("Brugeren afbrød uploaden. Mappevalget er uændret.")
+            _report(on_step, UPLOAD, CANCELLED, upload.progress)
+            if service_active:
+                _start_again(service, run)
+            return Result(resynced=False, outcome=CANCELLED)
         _report(on_step, UPLOAD, DONE, upload.progress)
         step = WRITE
         _report(on_step, WRITE, RUNNING)
@@ -246,7 +378,8 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         _report(on_step, WRITE, DONE)
     except (ApplyError, SelectionError, OSError) as exc:
         _report(on_step, step, FAILED)
-        _start_again(service, run)
+        if service_active:
+            _start_again(service, run)
         if isinstance(exc, OSError):
             raise ApplyError(f"Kan ikke skrive kontoens filer: {exc}") from None
         raise

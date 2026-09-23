@@ -12,7 +12,7 @@ from onedrive_gui.registry import Registry  # noqa: E402
 from onedrive_gui.viewmodels import AppController  # noqa: E402
 
 from conftest import RecordingRun, make_account_dir  # noqa: E402
-from fakes import FakeGraph, FakePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
+from fakes import FakeGraph, FakePopen, FakeStoppablePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
 
 ROOT_CHILDREN = "/v1.0/me/drive/root/children"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -1114,3 +1114,206 @@ def test_service_without_resync_has_no_progress(app, home, tmp_path):
     read_status_now(controller)
 
     assert role(controller, "serviceProgress") == {"visible": False}
+
+
+# Afbryd upload og resync (feature 0010)
+
+SIGTERM = 15
+
+
+def cancel_controller(home, tmp_path, *, show=None, popen=None, run=None):
+    from fakes import FakeSignals
+    confdir = synced_account(home)
+    signals = FakeSignals()
+    run = run or ScriptedRun(outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n',
+                                      "show": show or service_show("onedrive-x.service")})
+    popen = popen or FakeStoppablePopen(["New items to upload to Microsoft OneDrive: 3",
+                                         "Uploading new file: ./A/noter.md ... done"])
+    controller = make_controller(home, tmp_path, run=run, popen=popen, trash=lambda p: True,
+                                 send_signal=signals)
+    read_status_now(controller)
+    controller.openFolderPicker(str(confdir))
+    wait_for_picker(controller, "open")
+    controller.toggleFolder(row_of(controller, "B"))
+    controller.acceptPicker()
+    wait_for_picker(controller, "confirm")
+    controller.confirmRemoval()
+    return controller, confdir, run, popen, signals
+
+
+def test_cancel_apply_during_upload_stops_the_upload_and_changes_nothing(app, home, tmp_path):
+    controller, confdir, run, popen, signals = cancel_controller(home, tmp_path)
+    pump(controller, lambda: controller.applyCancellable)
+    assert step_states(controller)[1] == "running"
+
+    controller.cancelApply()
+
+    assert controller.applyCancelling is True
+    assert controller.applyCancellable is False
+    pump(controller, lambda: controller.applyState == "cancelled")
+    assert signals.signals == [SIGTERM]
+    assert step_states(controller) == ["done", "cancelled", "waiting", "waiting", "waiting"]
+    assert controller.applySteps[1]["stateText"] == "Afbrudt"
+    assert (confdir / "sync_list").read_text() == "/A/\n/B/\n"
+    assert (home / "OneDrive-X" / "B").exists()
+    assert ["systemctl", "--user", "start", "onedrive-x.service"] in run.calls
+    assert controller.pickerState == "open"
+    assert controller.pickerError == ""
+    assert controller.applyCancelling is False
+    controller.closeApplyProgress()
+    assert controller.applyState == ""
+
+
+def test_cancel_apply_does_not_start_a_service_that_was_stopped(app, home, tmp_path):
+    controller, confdir, run, popen, signals = cancel_controller(
+        home, tmp_path, show=service_show("onedrive-x.service", "inactive", pid="0"))
+    pump(controller, lambda: controller.applyCancellable)
+
+    controller.cancelApply()
+    pump(controller, lambda: controller.applyState == "cancelled")
+
+    assert not any(c[2] in ("start", "restart") for c in run.calls if c[0] == "systemctl")
+
+
+def test_cancel_apply_after_step_2_does_nothing(app, home, tmp_path):
+    gate = Gate("restart")
+    run = gated_run(gate, outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n',
+                                   "show": service_show("onedrive-x.service")})
+    controller, confdir, run, popen, signals = cancel_controller(
+        home, tmp_path, run=run, popen=FakeUploadPopen(UPLOAD_LINES))
+    assert gate.reached.wait(5)
+    pump(controller, lambda: step_states(controller)[4] == "running")
+
+    assert controller.applyCancellable is False
+    controller.cancelApply()
+
+    assert controller.applyCancelling is False
+    gate.release.set()
+    pump(controller, lambda: controller.pickerState == "closed")
+    assert signals.signals == []
+    assert (confdir / "sync_list").read_text() == "/A/\n"
+
+
+def cancel_resync_controller(home, tmp_path, **run_kwargs):
+    """Kontoen står som "Resynkroniserer". Efter ``stop`` er servicen stoppet."""
+    from test_process import add_process
+    confdir = service_account(home)
+    proc = tmp_path / "proc"
+    proc.mkdir(exist_ok=True)
+    add_process(proc, 4242, ["/usr/bin/onedrive", "--monitor", f"--confdir={confdir}",
+                             "--resync", "--resync-auth"],
+                "0::/user.slice/user@1000.service/app.slice/onedrive-x.service\n")
+    outputs = {"show": resync_show("onedrive-x.service"),
+               "journalctl": resync_journal("Number of items to download from Microsoft OneDrive: 120")}
+    user_on_call = run_kwargs.pop("on_call", None)
+
+    def on_call(args):
+        if user_on_call is not None:
+            user_on_call(args)
+        if "stop" in args and "stop" not in run.fail:
+            run.outputs["show"] = service_show("onedrive-x.service", "inactive", pid="0") + f"InvocationID={INVOCATION}\n"
+            (proc / "4242" / "cmdline").write_bytes(b"/usr/bin/bash\0")
+
+    run = ScriptedRun(outputs=outputs, on_call=on_call, **run_kwargs)
+    controller = make_controller(home, tmp_path, run=run)
+    read_status_now(controller)
+    return controller, confdir, run
+
+
+def stops(run):
+    return [c for c in run.calls if c[:3] == ["systemctl", "--user", "stop"]]
+
+
+def test_cancel_resync_waits_for_confirmation(app, home, tmp_path):
+    controller, confdir, run = cancel_resync_controller(home, tmp_path)
+    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceCancellable") is True
+
+    controller.requestCancelResync(str(confdir))
+
+    assert controller.cancelResyncAccountName == role(controller, "name")
+    assert stops(run) == []
+    controller.dismissCancelResync()
+    assert controller.cancelResyncAccountName == ""
+    assert stops(run) == []
+
+
+def test_confirmed_cancel_stops_the_service_and_shows_resync_cancelled(app, home, tmp_path):
+    controller, confdir, run = cancel_resync_controller(home, tmp_path)
+    controller.requestCancelResync(str(confdir))
+
+    controller.confirmCancelResync()
+    wait_until(lambda: role(controller, "serviceBusy") is False, controller)
+    wait_until(lambda: role(controller, "serviceLabel") == "Resync afbrudt", controller)
+
+    assert stops(run) == [["systemctl", "--user", "stop", "onedrive-x.service"]]
+    assert controller.cancelResyncAccountName == ""
+    import json
+    data = json.loads((home / ".config" / "onedrive-gui" / "state.json").read_text())
+    assert data["resync_cancelled"] == {"onedrive-x.service": {"invocation": INVOCATION}}
+    assert role(controller, "serviceActionLabel") == "Genstart med resync"
+    assert role(controller, "serviceCancellable") is False
+    assert role(controller, "serviceMessage") == ""
+
+
+def test_failing_stop_shows_the_error_and_writes_no_mark(app, home, tmp_path):
+    controller, confdir, run = cancel_resync_controller(
+        home, tmp_path, fail={"stop"}, stderr="Failed to stop onedrive-x.service: Access denied")
+    controller.requestCancelResync(str(confdir))
+
+    controller.confirmCancelResync()
+    wait_until(lambda: role(controller, "serviceBusy") is False, controller)
+
+    assert role(controller, "serviceMessage") == "Failed to stop onedrive-x.service: Access denied"
+    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+
+
+def test_request_close_is_false_while_the_resync_is_cancelled(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, run = cancel_resync_controller(home, tmp_path, on_call=gate)
+    controller.requestCancelResync(str(confdir))
+
+    controller.confirmCancelResync()
+    assert gate.reached.wait(5)
+
+    assert controller.requestClose() is False
+    assert "onedrive-x.service" in controller.busyText
+    gate.release.set()
+    wait_until(lambda: role(controller, "serviceBusy") is False, controller)
+    pump(controller, lambda: controller.busyText == "")
+
+
+def test_cancel_resync_in_safe_mode_does_not_reach_run(app, home, tmp_path, monkeypatch):
+    import subprocess
+    from test_process import add_process
+    confdir = service_account(home)
+    proc = tmp_path / "proc"
+    proc.mkdir(exist_ok=True)
+    add_process(proc, 4242, ["/usr/bin/onedrive", "--monitor", f"--confdir={confdir}", "--resync"],
+                "0::/user.slice/user@1000.service/app.slice/onedrive-x.service\n")
+    underlying = ScriptedRun(outputs={"show": resync_show("onedrive-x.service"),
+                                      "journalctl": resync_journal("Fetching items from the OneDrive API ..")})
+    monkeypatch.setattr(subprocess, "run", underlying)
+    controller = make_controller(home, tmp_path)
+    read_status_now(controller)
+    assert role(controller, "serviceLabel") == "Resynkroniserer"
+
+    controller.requestCancelResync(str(confdir))
+    controller.confirmCancelResync()
+    wait_until(lambda: role(controller, "serviceBusy") is False, controller)
+
+    assert role(controller, "serviceMessage") == ""
+    assert stops(underlying) == []
+    assert [c for c in underlying.calls if c[0] == "systemctl" and c[2] in CHANGING_SYSTEMCTL] == []
+
+
+def test_cancel_resync_is_ignored_when_the_service_is_not_resyncing(app, home, tmp_path):
+    service_account(home)
+    run = ScriptedRun(outputs={"show": service_show("onedrive-x.service")})
+    controller = make_controller(home, tmp_path, run=run)
+    read_status_now(controller)
+
+    controller.requestCancelResync(str(home / ".config" / "onedrive-x"))
+
+    assert controller.cancelResyncAccountName == ""
+    assert role(controller, "serviceCancellable") is False

@@ -7,12 +7,14 @@ import "../components" as UI
 
 // Arket "Ændrer mappevalg" med de 5 trin (feature 0009). Det erstatter spinneren i mappevælgeren.
 // Arket lukker, når trin 5 er færdigt. Fejler et trin, bliver arket stående, til brugeren klikker "Luk".
+// Under trin 2 kan brugeren klikke "Afbryd" (feature 0010). Så bliver arket stående med en besked.
 UI.Sheet {
     id: sheet
     objectName: "applyProgressSheet"
 
     required property var controller
     readonly property bool failed: controller.applyState === "failed"
+    readonly property bool cancelled: controller.applyState === "cancelled"
 
     closePolicy: T.Popup.NoAutoClose
     visible: controller.applyState !== ""
@@ -62,7 +64,9 @@ UI.Sheet {
                         UI.StatusDot {
                             anchors.centerIn: parent
                             visible: stepRow.modelData.state === "waiting" || stepRow.modelData.state === "done"
-                            tone: stepRow.modelData.state === "done" ? "success" : "textSecondary"
+                                     || stepRow.modelData.state === "cancelled"
+                            tone: stepRow.modelData.state === "done" ? "success"
+                                  : stepRow.modelData.state === "cancelled" ? "warning" : "textSecondary"
                             opacity: stepRow.modelData.state === "waiting" ? Theme.disabledOpacity : 1
                         }
                         BusyIndicator {
@@ -126,11 +130,34 @@ UI.Sheet {
 
     Text {
         Layout.fillWidth: true
-        visible: !sheet.failed
+        visible: !sheet.failed && !sheet.cancelled
         wrapMode: Text.Wrap
         text: "Uploaden og resync kan tage lang tid for en stor konto."
         font: Theme.caption
         color: Theme.textSecondary
+    }
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: sheet.cancelled
+        spacing: Theme.spacingXS
+
+        Text {
+            objectName: "applyCancelledText"
+            Layout.fillWidth: true
+            visible: sheet.cancelled
+            wrapMode: Text.Wrap
+            text: "Ændringen er afbrudt. Mappevalget er uændret."
+            font: Theme.body
+            color: Theme.textPrimary
+        }
+        Text {
+            Layout.fillWidth: true
+            wrapMode: Text.Wrap
+            text: "Filer, som klienten nåede at uploade, bliver på OneDrive."
+            font: Theme.caption
+            color: Theme.textSecondary
+        }
     }
 
     UI.InlineError {
@@ -140,8 +167,15 @@ UI.Sheet {
 
     buttons: [
         UI.SecondaryButton {
+            objectName: "applyCancelButton"
+            visible: sheet.controller.applyCancellable || sheet.controller.applyCancelling
+            enabled: !sheet.controller.applyCancelling
+            text: sheet.controller.applyCancelling ? "Afbryder …" : "Afbryd"
+            onClicked: sheet.controller.cancelApply()
+        },
+        UI.SecondaryButton {
             objectName: "applyProgressCloseButton"
-            visible: sheet.failed
+            visible: sheet.failed || sheet.cancelled
             text: "Luk"
             onClicked: sheet.controller.closeApplyProgress()
         }

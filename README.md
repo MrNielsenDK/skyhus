@@ -58,6 +58,11 @@ Arket "Ændrer mappevalg" viser de 5 trin. Hvert trin står som "Venter", "I gan
 Under uploaden viser arket antallet af uploadede filer og den seneste fil. Under papirkurven viser det antallet af flyttede stier.
 Arket lukker, når servicen er startet med `--resync`. Fejler et trin, bliver arket stående, til du klikker "Luk".
 
+Under trin 2 har arket knappen "Afbryd". Et klik stopper uploaden, og applikationen ændrer derefter intet.
+Den skriver ikke `sync_list` og flytter intet til papirkurven. Kørte servicen før, starter den igen uden `--resync`.
+Arket viser "Ændringen er afbrudt. Mappevalget er uændret." Filer, som klienten nåede at uploade, bliver på OneDrive.
+Efter trin 2 kan du ikke afbryde.
+
 ## Kortet "Service"
 
 Kortet "Service" på hver konto viser servicens tilstand og tidspunktet for den. Applikationen læser tilstanden hvert 3. sekund, mens vinduet er synligt.
@@ -71,7 +76,8 @@ Prikken ved kontoen i sidebjælken har den samme farve som tilstanden.
 | Stoppet | "Start" starter klienten. |
 | Fejlet | "Start" nulstiller fejlen og starter klienten. Kortet viser den sidste fejl fra loggen. |
 | Kræver resync | "Genstart med resync" genstarter servicen 1 gang med `--resync --resync-auth`. Du skal bekræfte det først. |
-| Resynkroniserer | Ingen knap. Kortet viser fasen, en bjælke, den seneste fil og tiden siden start. |
+| Resynkroniserer | "Afbryd resync" stopper servicen. Du skal bekræfte det først. Kortet viser fasen, en bjælke, den seneste fil og tiden siden start. |
+| Resync afbrudt | "Genstart med resync". Applikationen starter ikke servicen uden `--resync`, fordi klientens database kan være ufuldstændig. |
 | Kører uden for servicen | Ingen knap. En anden `onedrive`-proces bruger kontoen. |
 | Ikke logget ind | Ingen knap |
 | Ingen service | Ingen knap |
@@ -148,5 +154,6 @@ Testen af `LoginSheet.qml` springer over, hvis QtWebEngine mangler.
 ## Filer
 
 - `~/.config/onedrive-gui/accounts.json` gemmer visningsnavnene.
+- `~/.config/onedrive-gui/state.json` husker de services, hvor du har afbrudt en resync.
 - `~/.config/onedrive-<slug>/config` er config-filen for en ny konto.
 - `~/.config/systemd/user/onedrive-<slug>.service` er servicen for en ny konto.

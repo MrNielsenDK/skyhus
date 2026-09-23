@@ -526,3 +526,132 @@ def test_service_card_shows_that_the_resync_is_finished(load, home, tmp_path):
     assert root.findChild(QObject, "serviceProgressBar").property("visible") is False
     assert root.findChild(QObject, "serviceProgressResult").property("text") == "Resync er færdig"
     assert warnings == []
+
+
+# Afbryd upload og resync (feature 0010)
+
+def test_apply_sheet_has_cancel_during_upload_and_shows_the_result(load, home, tmp_path):
+    from fakes import FakeSignals, FakeStoppablePopen
+    confdir = make_account_dir(home, "onedrive-x", config='sync_dir = "~/OneDrive-X"\n',
+                               refresh_token=True, items=True)
+    (confdir / "sync_list").write_text("/A/\n")
+    (home / "OneDrive-X" / "A").mkdir(parents=True)
+    unit = home / ".config" / "systemd" / "user" / "onedrive-x.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text('[Service]\nExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-x"\n')
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    popen = FakeStoppablePopen(["New items to upload to Microsoft OneDrive: 3",
+                                "Uploading new file: ./A/noter.md ... done"])
+    graph = FakeGraph({"/v1.0/me/drive/root/children": {"value": [folder("A"), folder("B")]}})
+    engine, controller, warnings = load(home, opener=graph, proc_root=proc, popen=popen,
+                                        run=ScriptedRun(outputs={"cat": unit.read_text()}),
+                                        trash=lambda p: True, send_signal=FakeSignals())
+    root = engine.rootObjects()[0]
+    controller.openFolderPicker(str(confdir))
+    pump_until(controller, lambda: controller.pickerState == "open")
+    controller.toggleFolder(1)
+    controller.acceptPicker()
+    pump_until(controller, lambda: controller.applyCancellable)
+    # QML ser ændringen efter næste runde af timeren.
+    pump_until(controller, lambda: bool(visible_items(root, "applyCancelButton")))
+
+    buttons = visible_items(root, "applyCancelButton")
+    assert len(buttons) == 1
+    assert buttons[0].property("text") == "Afbryd"
+    assert visible_items(root, "applyCancelledText") == []
+
+    controller.cancelApply()
+    pump_until(controller, lambda: controller.applyState == "cancelled")
+    pump_until(controller, lambda: True)
+
+    assert visible_items(root, "applyCancelButton") == []
+    texts = visible_items(root, "applyCancelledText")
+    assert [t.property("text") for t in texts] == ["Ændringen er afbrudt. Mappevalget er uændret."]
+    assert len(visible_items(root, "applyProgressCloseButton")) == 1
+    assert (confdir / "sync_list").read_text() == "/A/\n"
+    controller.closeApplyProgress()
+    controller.closePicker()
+    QtGui.QGuiApplication.instance().processEvents()
+    assert warnings == []
+
+
+def test_apply_sheet_hides_cancel_after_step_2(load, home, tmp_path):
+    import threading
+    from fakes import FakeUploadPopen
+    confdir = make_account_dir(home, "onedrive-x", config='sync_dir = "~/OneDrive-X"\n',
+                               refresh_token=True, items=True)
+    (confdir / "sync_list").write_text("/A/\n")
+    (home / "OneDrive-X" / "A").mkdir(parents=True)
+    unit = home / ".config" / "systemd" / "user" / "onedrive-x.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text('[Service]\nExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-x"\n')
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    reached, release = threading.Event(), threading.Event()
+
+    def on_call(args):
+        if "restart" in args:
+            reached.set()
+            assert release.wait(5)
+
+    graph = FakeGraph({"/v1.0/me/drive/root/children": {"value": [folder("A"), folder("B")]}})
+    engine, controller, warnings = load(home, opener=graph, proc_root=proc, popen=FakeUploadPopen(),
+                                        run=ScriptedRun(outputs={"cat": unit.read_text()}, on_call=on_call),
+                                        trash=lambda p: True)
+    root = engine.rootObjects()[0]
+    controller.openFolderPicker(str(confdir))
+    pump_until(controller, lambda: controller.pickerState == "open")
+    controller.toggleFolder(1)
+    controller.acceptPicker()
+    pump_until(controller, lambda: reached.is_set() and controller.applySteps[4]["state"] == "running")
+
+    assert controller.applyCancellable is False
+    assert visible_items(root, "applyCancelButton") == []
+    controller.cancelApply()
+    assert controller.applyCancelling is False
+    release.set()
+    pump_until(controller, lambda: controller.pickerState == "closed")
+    assert warnings == []
+
+
+def test_cancel_resync_confirmation_and_resync_cancelled_card(load, home, tmp_path):
+    import time
+    run, proc = resync_qml(home, tmp_path, "Number of items to download from Microsoft OneDrive: 120")
+
+    def on_call(args):
+        if "stop" in args:
+            run.outputs["show"] = service_show("onedrive-x.service", "inactive") + "InvocationID=abc\n"
+            (proc / "4242" / "cmdline").write_bytes(b"/usr/bin/bash\0")
+
+    run.on_call = on_call
+    engine, controller, warnings = load(home, run=run, proc_root=proc)
+    root = engine.rootObjects()[0]
+    app = QtGui.QGuiApplication.instance()
+    read_status(controller)
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resynkroniserer"
+    button = root.findChild(QObject, "serviceCancelResyncButton")
+    assert button.property("visible") is True
+    assert button.property("text") == "Afbryd resync"
+    calls = list(run.calls)
+
+    controller.requestCancelResync(str(home / ".config" / "onedrive-x"))
+    app.processEvents()
+
+    sheet = root.findChild(QObject, "confirmCancelResync")
+    assert sheet.property("visible") is True
+    assert "En ny resync begynder forfra." in root.findChild(QObject, "confirmCancelResyncText").property("text")
+    assert run.calls == calls
+
+    controller.confirmCancelResync()
+    end = time.monotonic() + 5
+    while (root.findChild(QObject, "serviceStateLabel").property("text") != "Resync afbrudt"
+           and time.monotonic() < end):
+        controller._poll_status()
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resync afbrudt"
+    assert root.findChild(QObject, "serviceActionButton").property("text") == "Genstart med resync"
+    assert root.findChild(QObject, "serviceCancelResyncButton").property("visible") is False
+    assert warnings == []

@@ -103,6 +103,7 @@ ApplicationWindow {
                         required property bool serviceBusy
                         required property string serviceMessage
                         required property var serviceProgress
+                        required property bool serviceCancellable
 
                         width: ListView.view.width - ListView.view.leftMargin - ListView.view.rightMargin
                         implicitHeight: Theme.sidebarRowHeight
@@ -190,6 +191,7 @@ ApplicationWindow {
                 serviceBusy: accountList.currentItem ? accountList.currentItem.serviceBusy : false
                 serviceMessage: accountList.currentItem ? accountList.currentItem.serviceMessage : ""
                 serviceProgress: accountList.currentItem ? accountList.currentItem.serviceProgress : ({})
+                serviceCancellable: accountList.currentItem ? accountList.currentItem.serviceCancellable : false
             }
 
             // Den tomme tilstand, når der ingen konti er.
@@ -252,6 +254,10 @@ ApplicationWindow {
     }
 
     ConfirmResyncSheet {
+        controller: window.controller
+    }
+
+    ConfirmCancelResyncSheet {
         controller: window.controller
     }
 

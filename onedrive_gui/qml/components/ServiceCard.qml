@@ -7,6 +7,7 @@ import "." as UI
 // Kortet "Service": servicens tilstand, siden hvornår, den seneste fejllinje og en knap.
 // Under kortet står en fejlbesked, hvis en handling fejlede, eller hvis status ikke kan læses.
 // Under "Resynkroniserer" og "Resync er færdig" viser kortet fremdriften (feature 0009).
+// Under "Resynkroniserer" har kortet knappen "Afbryd resync" (feature 0010).
 ColumnLayout {
     id: serviceCard
     objectName: "serviceCard"
@@ -21,10 +22,13 @@ ColumnLayout {
     property string message
     // Fremdriften fra AccountListModel.serviceProgress. Tom eller {"visible": false} uden resync.
     property var progress: ({})
+    // Knappen "Afbryd resync" er synlig. AccountListModel.serviceCancellable.
+    property bool cancellable: false
     readonly property bool progressVisible: progress !== undefined && progress !== null && progress.visible === true
     readonly property bool progressActive: progressVisible && progress.active === true
 
     signal actionClicked()
+    signal cancelResyncClicked()
 
     function actionText(name) {
         switch (name) {
@@ -243,6 +247,29 @@ ColumnLayout {
                 text: serviceCard.actionLabel
                 enabled: !serviceCard.busy
                 onClicked: serviceCard.actionClicked()
+            }
+        }
+
+        UI.Row {
+            objectName: "serviceCancelResyncRow"
+            visible: serviceCard.cancellable
+            text: "Afbryd resync"
+            detail: "Kontoen synkroniserer ikke, før du starter en ny resync."
+
+            BusyIndicator {
+                visible: serviceCard.busy
+                running: serviceCard.busy
+                padding: 0
+                implicitWidth: Theme.controlHeight - Theme.spacingS
+                implicitHeight: Theme.controlHeight - Theme.spacingS
+                palette.dark: Theme.textSecondary
+            }
+            UI.SecondaryButton {
+                objectName: "serviceCancelResyncButton"
+                visible: serviceCard.cancellable
+                text: "Afbryd resync"
+                enabled: !serviceCard.busy
+                onClicked: serviceCard.cancelResyncClicked()
             }
         }
     }

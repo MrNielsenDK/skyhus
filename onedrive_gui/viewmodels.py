@@ -36,7 +36,19 @@ from .provision import provision_account, validate_sync_dir
 from .registry import Registry
 from .removal import format_size, is_skipped, total_size
 from .service import SystemctlError
-from .service_state import RESYNCING, UNKNOWN, AccountStatus, ServiceState, StatusReader, initial_status
+from .service_state import (
+    FAILED,
+    NEEDS_RESYNC,
+    RESYNC_CANCELLED,
+    RESYNCING,
+    STOPPED,
+    STOPPING,
+    UNKNOWN,
+    AccountStatus,
+    ServiceState,
+    StatusReader,
+    initial_status,
+)
 from .synclist import Selection, SelectionError, read_sync_list
 from .theme import avatar_color, avatar_text_color, initials
 
@@ -48,12 +60,15 @@ PICKER_POLL_INTERVAL_MS = 100
 STATUS_INTERVAL_MS = 3000
 STATUS_POLL_INTERVAL_MS = 100
 CLOSE_POLL_INTERVAL_MS = 100
-ACTION_TEXTS = {"start": "Starter {}", "restart": "Genstarter {}", "resync": "Genstarter {} med --resync"}
+ACTION_TEXTS = {"start": "Starter {}", "restart": "Genstarter {}", "resync": "Genstarter {} med --resync",
+                "cancel_resync": "Afbryder resync for {}"}
 """Teksten i arket "Applikationen lukker, når arbejdet er færdigt" for hver servicehandling."""
 PROGRESS_INTERVAL_MS = 2000
 """Så ofte læser applikationen nye linjer fra journalen under "Resynkroniserer" (feature 0009)."""
 STEP_STATE_TEXTS = {apply_mod.WAITING: "Venter", apply_mod.RUNNING: "I gang",
-                    apply_mod.DONE: "Færdigt", apply_mod.FAILED: "Fejlet"}
+                    apply_mod.DONE: "Færdigt", apply_mod.FAILED: "Fejlet", apply_mod.CANCELLED: "Afbrudt"}
+NOT_RUNNING = frozenset({STOPPING, STOPPED, FAILED, NEEDS_RESYNC, RESYNC_CANCELLED})
+"""Tilstandene, hvor servicen ikke kører. Efter en afbrudt upload starter applikationen den ikke (feature 0010)."""
 NO_PROGRESS = {"visible": False}
 
 
@@ -134,10 +149,11 @@ class AccountListModel(QAbstractListModel):
     ServiceMessageRole = Qt.UserRole + 16
     ServiceActionRole = Qt.UserRole + 17
     ServiceProgressRole = Qt.UserRole + 18
+    ServiceCancellableRole = Qt.UserRole + 19
 
     SERVICE_ROLES = [ServiceStateRole, ServiceLabelRole, ServiceToneRole, ServiceSinceRole,
                      ServiceActionLabelRole, ServiceErrorRole, ServiceBusyRole, ServiceMessageRole,
-                     ServiceActionRole, ServiceProgressRole]
+                     ServiceActionRole, ServiceProgressRole, ServiceCancellableRole]
 
     countChanged = Signal()
 
@@ -172,6 +188,7 @@ class AccountListModel(QAbstractListModel):
             self.ServiceMessageRole: QByteArray(b"serviceMessage"),
             self.ServiceActionRole: QByteArray(b"serviceAction"),
             self.ServiceProgressRole: QByteArray(b"serviceProgress"),
+            self.ServiceCancellableRole: QByteArray(b"serviceCancellable"),
         }
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
@@ -222,6 +239,9 @@ class AccountListModel(QAbstractListModel):
             return self._messages.get(key) or status.message
         if role == self.ServiceProgressRole:
             return progress_data(status, self.now())
+        if role == self.ServiceCancellableRole:
+            # Knappen "Afbryd resync" (feature 0010).
+            return state.key == RESYNCING
         return None
 
     def status(self, confdir: str) -> AccountStatus:
@@ -466,16 +486,18 @@ class AppController(QObject):
     closeReady = Signal()
     """Vinduet må lukke nu (feature 0008). QML kalder ``close()`` igen."""
     applyChanged = Signal()
+    cancelResyncChanged = Signal()
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
-                 clock=None, sleep=None):
+                 clock=None, sleep=None, send_signal=None):
         super().__init__(parent)
         self._home = home
         self._popen = popen or sideeffects.popen
         self._run = run or sideeffects.run
         self._opener = opener
         self._trash = trash or sideeffects.trash
+        self._send_signal = send_signal or sideeffects.signal_process
         self._proc_root = Path(proc_root)
         self._registry = Registry.for_home(home)
         self._model = AccountListModel(self)
@@ -510,6 +532,7 @@ class AppController(QObject):
         self._status_again = False
         self._action_jobs: dict[str, _Job] = {}
         self._resync_confdir = ""
+        self._cancel_resync_confdir = ""
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(STATUS_INTERVAL_MS)
         self._status_timer.timeout.connect(self.refreshStatus)
@@ -527,6 +550,9 @@ class AppController(QObject):
         self._apply_steps: dict[int, tuple[str, SyncProgress | None]] = {}
         self._apply_version = 0
         self._apply_seen = 0
+        # "Afbryd" i trin 2 (feature 0010).
+        self._apply_cancel: apply_mod.CancelFlag | None = None
+        self._apply_cancelling = False
         # Luk under arbejde (feature 0008). Nøglen er tråden eller _Job-objektet.
         self._critical_jobs: dict[object, str] = {}
         self._closing = False
@@ -626,13 +652,36 @@ class AppController(QObject):
     resyncAccountName = Property(str, _get_resync_name, notify=resyncChanged)
     """Navnet på kontoen, som venter på bekræftelsen af "Genstart med resync", eller tom."""
 
+    def _get_cancel_resync_name(self) -> str:
+        account = self._find_account(self._cancel_resync_confdir) if self._cancel_resync_confdir else None
+        return account.name if account else ""
+
+    cancelResyncAccountName = Property(str, _get_cancel_resync_name, notify=cancelResyncChanged)
+    """Navnet på kontoen, som venter på bekræftelsen af "Afbryd resync", eller tom (feature 0010)."""
+
     # Arket "Ændrer mappevalg"
 
     def _get_apply_state(self) -> str:
         return self._apply_state
 
     applyState = Property(str, _get_apply_state, notify=applyChanged)
-    """Tom, ``running`` eller ``failed``. Arket er synligt, når værdien ikke er tom."""
+    """Tom, ``running``, ``failed`` eller ``cancelled``. Arket er synligt, når værdien ikke er tom."""
+
+    def _get_apply_cancellable(self) -> bool:
+        if self._apply_state != "running" or self._apply_cancel is None or self._apply_cancelling:
+            return False
+        with self._apply_lock:
+            upload = self._apply_steps.get(apply_mod.UPLOAD)
+        return upload is not None and upload[0] == apply_mod.RUNNING
+
+    applyCancellable = Property(bool, _get_apply_cancellable, notify=applyChanged)
+    """Knappen "Afbryd" er synlig. Det gælder kun, mens trin 2 kører (feature 0010)."""
+
+    def _get_apply_cancelling(self) -> bool:
+        return self._apply_cancelling
+
+    applyCancelling = Property(bool, _get_apply_cancelling, notify=applyChanged)
+    """Brugeren har klikket "Afbryd", og uploaden stopper nu."""
 
     def _get_apply_steps(self) -> list:
         with self._apply_lock:
@@ -857,14 +906,26 @@ class AppController(QObject):
 
     @Slot()
     def closeApplyProgress(self) -> None:
-        """Knappen "Luk" i arket "Ændrer mappevalg", når et trin er fejlet."""
-        if self._apply_state == "failed":
+        """Knappen "Luk" i arket "Ændrer mappevalg", når et trin er fejlet, eller ændringen er afbrudt."""
+        if self._apply_state in ("failed", "cancelled"):
             self._set_apply_state("")
+
+    @Slot()
+    def cancelApply(self) -> None:
+        """Knappen "Afbryd" i arket "Ændrer mappevalg". Gør intet uden for trin 2."""
+        flag = self._apply_cancel
+        if flag is None or self._apply_cancelling or not self._get_apply_cancellable():
+            return
+        if flag.request():
+            log.info("Brugeren afbryder uploaden for %s",
+                     self._picker_account.name if self._picker_account else "kontoen")
+            self._apply_cancelling = True
+            self.applyChanged.emit()
 
     @Slot(str)
     def serviceAction(self, confdir: str) -> None:
         """Knappen i kortet "Service". "Genstart med resync" venter på en bekræftelse."""
-        if self._model.is_busy(confdir) or self._resync_confdir:
+        if self._model.is_busy(confdir) or self._resync_confdir or self._cancel_resync_confdir:
             return
         account = self._find_account(confdir)
         if account is None or not account.service:
@@ -892,6 +953,34 @@ class AppController(QObject):
         if self._resync_confdir:
             self._resync_confdir = ""
             self.resyncChanged.emit()
+
+    @Slot(str)
+    def requestCancelResync(self, confdir: str) -> None:
+        """Knappen "Afbryd resync" i kortet "Service". Den venter på en bekræftelse (feature 0010)."""
+        if self._model.is_busy(confdir) or self._resync_confdir or self._cancel_resync_confdir:
+            return
+        account = self._find_account(confdir)
+        if account is None or not account.service or self._model.status(confdir).state.key != RESYNCING:
+            return
+        self._cancel_resync_confdir = confdir
+        self.cancelResyncChanged.emit()
+
+    @Slot()
+    def confirmCancelResync(self) -> None:
+        confdir = self._cancel_resync_confdir
+        if not confdir:
+            return
+        self._cancel_resync_confdir = ""
+        self.cancelResyncChanged.emit()
+        account = self._find_account(confdir)
+        if account is not None and account.service and not self._model.is_busy(confdir):
+            self._start_cancel_resync(account)
+
+    @Slot()
+    def dismissCancelResync(self) -> None:
+        if self._cancel_resync_confdir:
+            self._cancel_resync_confdir = ""
+            self.cancelResyncChanged.emit()
 
     @Slot(result=bool)
     def requestClose(self) -> bool:
@@ -945,6 +1034,16 @@ class AppController(QObject):
                    home=self._home, run=self._run, clock=self._clock, sleep=self._sleep)
         self._action_jobs[confdir] = job
         self._begin_critical(job, ACTION_TEXTS[action].format(account.service))
+        self._status_poll_timer.start()
+
+    def _start_cancel_resync(self, account: Account) -> None:
+        """Stop servicen i en tråd. Handlingen er kritisk efter feature 0008."""
+        confdir = str(account.confdir)
+        self._model.set_service_message(confdir, "")
+        self._model.set_busy(confdir, True)
+        job = _Job("action", service_control.cancel_resync, account.service, home=self._home, run=self._run)
+        self._action_jobs[confdir] = job
+        self._begin_critical(job, ACTION_TEXTS["cancel_resync"].format(account.service))
         self._status_poll_timer.start()
 
     def _poll_status(self) -> None:
@@ -1018,6 +1117,8 @@ class AppController(QObject):
         self._change = None
         self._picker_account = None
         self._picker_for_login = False
+        self._apply_cancel = None
+        self._apply_cancelling = False
         self._set_apply_state("")
         self._set_picker(state="closed", error="")
 
@@ -1028,14 +1129,19 @@ class AppController(QObject):
     def _execute_change(self) -> None:
         change = self._change
         self._set_picker(state="applying", error="")
+        self._apply_cancel = apply_mod.CancelFlag() if change.synced else None
+        self._apply_cancelling = False
         if change.synced:
             with self._apply_lock:
                 self._apply_steps = {step: (apply_mod.WAITING, None) for step in apply_mod.STEPS}
                 self._apply_version += 1
             self._set_apply_state("running")
+        state = self._model.status(str(change.account.confdir)).state.key
         self._start_job("execute", apply_mod.execute, change, home=self._home,
                         run=self._run, popen=self._popen, trash=self._trash, proc_root=self._proc_root,
-                        on_step=self._on_apply_step if change.synced else None)
+                        on_step=self._on_apply_step if change.synced else None,
+                        cancel=self._apply_cancel, service_active=state not in NOT_RUNNING,
+                        send_signal=self._send_signal)
         if change.synced:
             text = f"Gemmer mappevalget for {change.account.name} og genstarter {change.account.service}"
         else:
@@ -1091,6 +1197,15 @@ class AppController(QObject):
             else:
                 self._execute_change()
         elif job.kind == "execute":
+            self._apply_cancel = None
+            self._apply_cancelling = False
+            if error is None and job.result.outcome == apply_mod.CANCELLED:
+                # Arket viser "Ændringen er afbrudt", til brugeren klikker "Luk". Mappevalget er uændret.
+                self._change = None
+                self._set_apply_state("cancelled")
+                self.applyChanged.emit()
+                self._set_picker(state="open", error="")
+                return
             if error is not None:
                 self._change = None
                 if self._apply_state == "running":

@@ -210,3 +210,74 @@ def test_resync_restarts_with_flags_and_removes_drop_in(home):
     assert ["systemctl", "--user", "restart", "onedrive-privat.service"] in run.calls
     assert seen["drop_in"].rstrip().endswith("--resync --resync-auth")
     assert not drop_in(home).exists()
+
+
+# Afbryd resync (feature 0010)
+
+SHOW_RESYNC = ("Id=onedrive-privat.service\nLoadState=loaded\nActiveState=active\nSubState=running\n"
+               "MainPID=4242\nInvocationID=abc123\n")
+
+
+def test_cancel_resync_stops_the_service_and_writes_the_mark(home):
+    from onedrive_gui import service_state
+    seen = {}
+
+    def on_call(args):
+        if "stop" in args:
+            seen["mark_before_stop"] = service_state.cancelled_resyncs(home)
+
+    run = ScriptedRun(outputs={"show": SHOW_RESYNC}, on_call=on_call)
+
+    service_control.cancel_resync("onedrive-privat.service", home=home, run=run)
+
+    assert [c[2] for c in run.calls] == ["show", "stop"]
+    assert run.calls[-1] == ["systemctl", "--user", "stop", "onedrive-privat.service"]
+    assert seen["mark_before_stop"] == {}
+    assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": "abc123"}
+    assert (home / ".config" / "onedrive-gui" / "state.json").exists()
+
+
+def test_failing_stop_writes_no_mark(home):
+    from onedrive_gui import service_state
+    run = ScriptedRun(outputs={"show": SHOW_RESYNC}, fail={"stop"},
+                      stderr="Failed to stop onedrive-privat.service: Access denied")
+
+    with pytest.raises(SystemctlError, match="Access denied"):
+        service_control.cancel_resync("onedrive-privat.service", home=home, run=run)
+
+    assert service_state.cancelled_resyncs(home) == {}
+    assert not (home / ".config" / "onedrive-gui" / "state.json").exists()
+
+
+def test_cancel_resync_in_safe_mode_does_not_reach_run(home, monkeypatch):
+    import subprocess
+    underlying = ScriptedRun(outputs={"show": SHOW_RESYNC})
+    monkeypatch.setattr(subprocess, "run", underlying)
+
+    service_control.cancel_resync("onedrive-privat.service", home=home)
+
+    assert not any("stop" in c for c in underlying.calls)
+
+
+def test_start_after_cancelled_resync_removes_the_mark(home):
+    from onedrive_gui import service_state
+    service_state.mark_resync_cancelled("onedrive-privat.service", "abc123", home=home)
+    clock = FakeClock()
+
+    service_control.perform("resync", "onedrive-privat.service", states("resyncing"),
+                            home=home, run=ScriptedRun(outputs={"cat": CAT}), clock=clock, sleep=clock.sleep)
+
+    assert service_state.cancelled_resyncs(home) == {}
+
+
+def test_failing_start_keeps_the_mark(home):
+    from onedrive_gui import service_state
+    service_state.mark_resync_cancelled("onedrive-privat.service", "abc123", home=home)
+    clock = FakeClock()
+
+    with pytest.raises(SystemctlError):
+        service_control.perform("resync", "onedrive-privat.service", states("running"), home=home,
+                                run=ScriptedRun(outputs={"cat": CAT}, fail={"restart"}),
+                                clock=clock, sleep=clock.sleep)
+
+    assert service_state.cancelled_resyncs(home) == {"onedrive-privat.service": "abc123"}

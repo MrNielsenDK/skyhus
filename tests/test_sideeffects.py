@@ -216,6 +216,54 @@ def test_without_safe_mode_every_call_reaches_the_function(underlying, normal_mo
     assert sideeffects.guard_write(REAL_HOME / ".config" / "systemd" / "user" / "x.service") is True
 
 
+# Signaler til en proces (feature 0010)
+
+class SignalledProcess:
+    pid = 4711
+
+    def __init__(self):
+        self.signals = []
+
+    def send_signal(self, sig):
+        self.signals.append(sig)
+
+
+def test_signal_is_not_sent_in_safe_mode(caplog):
+    import signal
+    caplog.set_level(logging.INFO)
+    process = SignalledProcess()
+
+    sideeffects.signal_process(process, signal.SIGTERM)
+    sideeffects.signal_process(process, signal.SIGKILL)
+
+    assert process.signals == []
+    assert "SAFE MODE: sender ikke SIGTERM til PID 4711" in caplog.text
+    assert "SAFE MODE: sender ikke SIGKILL til PID 4711" in caplog.text
+
+
+def test_signal_is_sent_without_safe_mode(normal_mode):
+    import signal
+    process = SignalledProcess()
+
+    sideeffects.signal_process(process, signal.SIGTERM)
+
+    assert process.signals == [signal.SIGTERM]
+
+
+def test_signal_to_a_process_that_is_gone_is_ignored(normal_mode):
+    import signal
+
+    class Gone(SignalledProcess):
+        def send_signal(self, sig):
+            raise ProcessLookupError
+
+    sideeffects.signal_process(Gone(), signal.SIGTERM)
+
+
+def test_guard_write_allows_state_json_under_real_home():
+    assert sideeffects.guard_write(REAL_HOME / ".config" / "onedrive-gui" / "state.json") is True
+
+
 # Kildekoden
 
 FORBIDDEN = {("subprocess", "run"), ("subprocess", "Popen"), ("QFile", "moveToTrash")}
@@ -302,3 +350,27 @@ def test_every_file_write_is_guarded(path):
             if writes and not _calls_guard(node):
                 missing.append(f"{path.name}:{node.name}: {', '.join(writes)}")
     assert missing == []
+
+
+SIGNAL_CALLS = {("os", "kill"), ("os", "killpg")}
+
+
+@pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
+def test_no_module_sends_signals_directly(path):
+    """Signaler går gennem ``sideeffects.signal_process`` (feature 0010)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found = [f"{path.name}:{node.lineno} {node.func.attr}"
+             for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and (node.func.attr == "send_signal"
+                  or (isinstance(node.func.value, ast.Name) and (node.func.value.id, node.func.attr) in SIGNAL_CALLS))]
+    assert found == []
+
+
+def test_apply_does_not_terminate_or_kill_directly():
+    """Uploaden i ``apply.py`` stopper kun processen med ``sideeffects.signal_process`` (feature 0010)."""
+    tree = ast.parse((PACKAGE_DIR / "apply.py").read_text(encoding="utf-8"))
+    found = [node.lineno for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+             and node.func.attr in ("terminate", "kill")]
+    assert found == []

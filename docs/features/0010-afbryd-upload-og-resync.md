@@ -1,7 +1,7 @@
 # Afbryd upload og resync
 
 Version: 0.7.0
-Status: planlagt
+Status: udviklet
 Oprettet: 2026-09-23
 
 ## Problem

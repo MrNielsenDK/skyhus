@@ -7,6 +7,10 @@ selv ændrer sig ikke.
 
 Knapperne i kortet "Service" (feature 0004) bruger ``perform()``. Den udfører
 handlingen og venter, til servicen er "Kører", "Fejlet" eller "Kræver resync".
+
+``cancel_resync()`` stopper en service under en resync og skriver markeringen
+for "Resync afbrudt" (feature 0010). ``perform()`` fjerner markeringen, når
+servicen er startet igen.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from typing import Callable
 from . import sideeffects
 from .accounts import unit_dir
 from .service import SystemctlError, systemctl
-from .service_state import SETTLED
+from .service_state import SETTLED, clear_resync_cancelled, mark_resync_cancelled, read_units
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +47,17 @@ def stop(service: str, run: Run | None = None) -> None:
 
 def start(service: str, run: Run | None = None) -> None:
     systemctl("start", service, run=run)
+
+
+def cancel_resync(service: str, *, home: Path | None = None, run: Run | None = None) -> None:
+    """Knappen "Afbryd resync": stop servicen, og husk, at resync er afbrudt.
+
+    Fejler ``systemctl stop``, giver funktionen ``SystemctlError`` og skriver ingen markering.
+    """
+    unit = read_units([service], run=run).get(service)
+    invocation = unit.invocation_id if unit is not None else ""
+    stop(service, run=run)
+    mark_resync_cancelled(service, invocation, home=home)
 
 
 def reset_and_restart(service: str, run: Run | None = None) -> None:
@@ -150,4 +165,5 @@ def perform(action: str, service: str, read_state: Callable[[], str], *,
         reset_and_restart(service, run=run)
     else:
         raise ValueError(f"Ukendt handling: {action}")
+    clear_resync_cancelled(service, home=home)
     return wait_until_settled(read_state, deadline=deadline, clock=clock, sleep=sleep)

@@ -12,7 +12,7 @@ from onedrive_gui.apply import ApplyError, execute, prepare
 from onedrive_gui.synclist import SelectionError
 
 from conftest import make_account_dir
-from fakes import FakeUploadPopen, ScriptedRun
+from fakes import FakeSignals, FakeStoppablePopen, FakeUploadPopen, ScriptedRun
 
 SERVICE = "onedrive-x.service"
 CAT = """\
@@ -392,3 +392,170 @@ def test_upload_in_safe_mode_uses_sideeffects_popen_and_fails(home, proc, monkey
     assert steps.states[3] == apply.WAITING
     # conftest stopper testen, hvis subprocess.Popen bliver kaldt. onedrive startede altså ikke.
     assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
+
+
+# Feature 0010: afbryd upload.
+
+SIGTERM, SIGKILL = 15, 9
+CANCEL_LINES = [
+    "New items to upload to Microsoft OneDrive: 3",
+    "Uploading new file: ./A/noter.md ... done",
+]
+
+
+def cancelling_popen(flag, *, stops_on=(SIGTERM,), exit_code=None, at="noter.md", lines=CANCEL_LINES):
+    """En upload, hvor brugeren klikker "Afbryd", når linjen med ``at`` kommer."""
+
+    def on_line(line):
+        if at in line:
+            assert flag.request() is True
+
+    return FakeStoppablePopen(lines, stops_on=stops_on, exit_code=exit_code, on_line=on_line)
+
+
+def cancel_change(home, proc, *, popen_for=None, service_active=True, clock=None, moved=None):
+    from fakes import SteppingClock
+    account = make_account(home)
+    run = ScriptedRun(outputs={"cat": CAT})
+    steps = Steps()
+    flag = apply.CancelFlag()
+    clock = clock or SteppingClock()
+    signals = FakeSignals(clock)
+    popen = (popen_for or cancelling_popen)(flag)
+    moved = [] if moved is None else moved
+    change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
+    result = execute(change, home=home, run=run, popen=popen, trash=lambda p: moved.append(p) or True,
+                     proc_root=proc, on_step=steps, cancel=flag, service_active=service_active,
+                     send_signal=signals, clock=clock, sleep=clock.sleep)
+    return result, account, run, steps, signals, moved
+
+
+def test_cancel_during_upload_sends_sigterm(home, proc):
+    result, account, run, steps, signals, moved = cancel_change(home, proc)
+
+    assert signals.signals == [SIGTERM]
+
+
+def test_upload_that_ignores_sigterm_gets_sigkill_after_30_seconds(home, proc):
+    from fakes import SteppingClock
+    clock = SteppingClock()
+
+    result, account, run, steps, signals, moved = cancel_change(
+        home, proc, clock=clock, popen_for=lambda flag: cancelling_popen(flag, stops_on=(SIGKILL,)))
+
+    assert signals.signals == [SIGTERM, SIGKILL]
+    (_, term_at), (_, kill_at) = signals.sent
+    assert kill_at - term_at >= 30
+    assert kill_at - term_at < 32
+    assert result.outcome == apply.CANCELLED
+
+
+def test_cancel_leaves_sync_list_and_trash_alone(home, proc):
+    result, account, run, steps, signals, moved = cancel_change(home, proc)
+
+    assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
+    assert moved == []
+    assert (home / "OneDrive-X" / "B" / "fil.txt").exists()
+
+
+def test_cancel_starts_a_running_service_again_without_resync(home, proc):
+    result, account, run, steps, signals, moved = cancel_change(home, proc)
+
+    assert run.calls[0] == ["systemctl", "--user", "stop", SERVICE]
+    assert run.calls[-1] == ["systemctl", "--user", "start", SERVICE]
+    assert not any("--resync" in " ".join(c) for c in run.calls)
+    assert not any("restart" in c or "daemon-reload" in c for c in run.calls)
+    assert not drop_in(home).exists()
+
+
+def test_cancel_does_not_start_a_service_that_was_stopped(home, proc):
+    result, account, run, steps, signals, moved = cancel_change(home, proc, service_active=False)
+
+    assert run.calls == [["systemctl", "--user", "stop", SERVICE]]
+
+
+def test_cancel_result_is_cancelled(home, proc):
+    result, account, run, steps, signals, moved = cancel_change(home, proc)
+
+    assert result.outcome == apply.CANCELLED
+    assert result.resynced is False
+    assert steps.states == {1: apply.DONE, 2: apply.CANCELLED, 3: apply.WAITING,
+                            4: apply.WAITING, 5: apply.WAITING}
+
+
+def test_cancel_when_the_upload_ends_with_exit_0_is_still_cancelled(home, proc):
+    def popen_for(flag):
+        def on_line(line):
+            if "plan.txt" in line:
+                assert flag.request() is True
+
+        return FakeUploadPopen(UPLOAD_LINES, returncode=0, on_line=on_line)
+
+    result, account, run, steps, signals, moved = cancel_change(home, proc, popen_for=popen_for)
+
+    assert result.outcome == apply.CANCELLED
+    assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
+    assert moved == []
+    assert run.calls[-1] == ["systemctl", "--user", "start", SERVICE]
+
+
+def test_cancel_outside_step_2_does_nothing(home, proc):
+    account = make_account(home)
+    run = ScriptedRun(outputs={"cat": CAT})
+    flag = apply.CancelFlag()
+    answers = []
+
+    def on_step(step, state, progress):
+        if state == apply.RUNNING and step in (apply.STOP, apply.WRITE, apply.TRASH, apply.RESYNC):
+            answers.append((step, flag.request()))
+
+    change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
+    result = execute(change, home=home, run=run, popen=FakeUploadPopen(UPLOAD_LINES), trash=lambda p: True,
+                     proc_root=proc, on_step=on_step, cancel=flag, send_signal=FakeSignals())
+
+    assert answers and all(answer is False for _, answer in answers)
+    assert {step for step, _ in answers} == {apply.STOP, apply.WRITE, apply.TRASH, apply.RESYNC}
+    assert result.outcome == apply.DONE
+    assert (account.confdir / "sync_list").read_text() == "/A/\n"
+
+
+def test_flag_is_checked_every_second_without_new_lines(home, proc):
+    import threading
+    import time
+    account = make_account(home)
+    run = ScriptedRun(outputs={"cat": CAT})
+    flag = apply.CancelFlag()
+    popen = FakeStoppablePopen(["New items to upload to Microsoft OneDrive: 3"])
+    signals = FakeSignals()
+    change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
+    results = []
+    worker = threading.Thread(target=lambda: results.append(execute(
+        change, home=home, run=run, popen=popen, trash=lambda p: True, proc_root=proc,
+        cancel=flag, send_signal=signals)))
+    worker.start()
+    end = time.monotonic() + 5
+    while not popen.processes and time.monotonic() < end:
+        time.sleep(0.01)
+    time.sleep(0.1)
+
+    assert flag.request() is True
+    requested = time.monotonic()
+    worker.join(5)
+
+    assert signals.signals == [SIGTERM]
+    assert time.monotonic() - requested < 2.5
+    assert results[0].outcome == apply.CANCELLED
+
+
+def test_upload_signals_go_through_sideeffects(home, proc, monkeypatch):
+    sent = []
+    monkeypatch.setattr(sideeffects, "signal_process", lambda process, sig: sent.append(sig) or process.receive(sig))
+    flag = apply.CancelFlag()
+    account = make_account(home)
+    change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
+
+    result = execute(change, home=home, run=ScriptedRun(outputs={"cat": CAT}), popen=cancelling_popen(flag),
+                     trash=lambda p: True, proc_root=proc, cancel=flag)
+
+    assert sent == [SIGTERM]
+    assert result.outcome == apply.CANCELLED

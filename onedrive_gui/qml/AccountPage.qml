@@ -26,6 +26,7 @@ Item {
     property bool serviceBusy: false
     property string serviceMessage
     property var serviceProgress: ({})
+    property bool serviceCancellable: false
 
     Flickable {
         id: flick
@@ -126,7 +127,9 @@ Item {
                 busy: page.serviceBusy
                 message: page.serviceMessage
                 progress: page.serviceProgress
+                cancellable: page.serviceCancellable
                 onActionClicked: page.controller.serviceAction(page.confdir)
+                onCancelResyncClicked: page.controller.requestCancelResync(page.confdir)
             }
 
             UI.Card {

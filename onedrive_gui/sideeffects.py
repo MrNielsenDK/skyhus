@@ -2,7 +2,8 @@
 
 Resten af applikationen kalder ``run``, ``popen`` og ``trash`` her i stedet
 for ``subprocess.run``, ``subprocess.Popen`` og ``QFile.moveToTrash``. Før en
-fil bliver skrevet eller slettet, kalder koden ``guard_write(path)``.
+fil bliver skrevet eller slettet, kalder koden ``guard_write(path)``. Et
+signal til en proces går gennem ``signal_process`` (feature 0010).
 
 I sikker tilstand ændrer applikationen intet på systemet. En blokeret
 handling giver en linje i loggen, der starter med ``SAFE MODE:``.
@@ -22,6 +23,7 @@ from __future__ import annotations
 import logging
 import os
 import pwd
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -170,6 +172,31 @@ def popen(args, **kwargs):
             log.warning("SAFE MODE: %s", " ".join(cmd))
             return BlockedProcess(args, _not_started(cmd), kwargs.get("stdout"))
     return subprocess.Popen(args, **kwargs)
+
+
+def _signal_name(sig) -> str:
+    try:
+        return signal.Signals(sig).name
+    except ValueError:
+        return str(sig)
+
+
+def signal_process(process, sig) -> None:
+    """Send ``sig`` til ``process``. I sikker tilstand sender funktionen intet.
+
+    I sikker tilstand starter ``popen`` ikke ``onedrive``. Der er derfor ingen
+    rigtig proces at stoppe. En proces, der allerede er stoppet, giver ingen fejl.
+    """
+    name = _signal_name(sig)
+    pid = getattr(process, "pid", "?")
+    if safe_mode():
+        log.warning("SAFE MODE: sender ikke %s til PID %s", name, pid)
+        return
+    log.info("Sender %s til PID %s", name, pid)
+    try:
+        process.send_signal(sig)
+    except ProcessLookupError:
+        log.info("PID %s er allerede stoppet", pid)
 
 
 def trash(path: Path) -> bool:
