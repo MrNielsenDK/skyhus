@@ -8,7 +8,13 @@ Passer flere tilstande, vinder den første i denne rækkefølge:
 2. Ikke logget ind
 3. Kører uden for servicen
 4. Kræver resync
-5. Kører, Starter, Stopper, Fejlet eller Stoppet efter ``ActiveState``
+5. Resynkroniserer
+6. Kører, Starter, Stopper, Fejlet eller Stoppet efter ``ActiveState``
+
+"Resynkroniserer" gælder, når servicens hovedproces har ``--resync`` på
+kommandolinjen, og journalen for servicens nuværende kørsel endnu ikke har en
+linje, der afslutter synkroniseringen (feature 0009). ``ResyncTracker`` læser
+journalen for kørslen og husker fremdriften og cursoren.
 """
 
 from __future__ import annotations
@@ -16,26 +22,29 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
-from dataclasses import dataclass, replace
+import threading
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
 from . import journal
 from .accounts import Account
-from .process import PROC_ROOT, OnedriveProcess, find_processes
+from .process import PROC_ROOT, OnedriveProcess, cmdline, find_processes
+from .progress import COMPLETE, COMPLETE_WITH_FAILURES, SyncProgress
 from .service import SystemctlError, systemctl
 
 log = logging.getLogger(__name__)
 
 SHOW_PROPERTIES = ("Id", "LoadState", "ActiveState", "SubState", "Result", "ExecMainStatus",
-                   "MainPID", "ActiveEnterTimestamp", "InactiveEnterTimestamp")
+                   "MainPID", "ActiveEnterTimestamp", "InactiveEnterTimestamp", "InvocationID")
 RESYNC_EXIT_STATUS = 126
 
 NO_SERVICE = "no_service"
 LOGGED_OUT = "logged_out"
 FOREIGN = "foreign"
 NEEDS_RESYNC = "needs_resync"
+RESYNCING = "resyncing"
 RUNNING = "running"
 STARTING = "starting"
 STOPPING = "stopping"
@@ -43,7 +52,7 @@ FAILED = "failed"
 STOPPED = "stopped"
 UNKNOWN = "unknown"
 
-SETTLED = frozenset({RUNNING, FAILED, NEEDS_RESYNC})
+SETTLED = frozenset({RUNNING, FAILED, NEEDS_RESYNC, RESYNCING})
 """Tilstandene, som applikationen venter på efter et klik."""
 
 # Nøgle: (tekst, prik, handling). Handlingen er "restart", "start", "resync" eller tom.
@@ -52,6 +61,7 @@ STATES = {
     STARTING: ("Starter", "warning", "restart"),
     STOPPING: ("Stopper", "warning", ""),
     NEEDS_RESYNC: ("Kræver resync", "danger", "resync"),
+    RESYNCING: ("Resynkroniserer", "warning", ""),
     FAILED: ("Fejlet", "danger", "start"),
     STOPPED: ("Stoppet", "textSecondary", "start"),
     FOREIGN: ("Kører uden for servicen", "warning", ""),
@@ -61,6 +71,9 @@ STATES = {
 }
 
 ACTION_LABELS = {"restart": "Genstart", "start": "Start", "resync": "Genstart med resync"}
+
+RESYNC_FLAG = "--resync"
+RESULT_TEXTS = {COMPLETE: "Resync er færdig", COMPLETE_WITH_FAILURES: "Resync er færdig med fejl"}
 
 _BY_ACTIVE_STATE = {
     "active": RUNNING,
@@ -92,6 +105,7 @@ class UnitStatus:
     main_pid: int = 0
     active_enter: str = ""
     inactive_enter: str = ""
+    invocation_id: str = ""
 
     @classmethod
     def from_properties(cls, props: dict[str, str]) -> "UnitStatus":
@@ -111,6 +125,7 @@ class UnitStatus:
             main_pid=number("MainPID"),
             active_enter=props.get("ActiveEnterTimestamp", ""),
             inactive_enter=props.get("InactiveEnterTimestamp", ""),
+            invocation_id=props.get("InvocationID", ""),
         )
 
 
@@ -145,6 +160,13 @@ class AccountStatus:
     stale: bool = False
     """``systemctl show`` fejlede. ``state`` er den sidste kendte tilstand."""
     read_error: str = ""
+    progress: SyncProgress | None = None
+    """Fremdriften, når servicens hovedproces har ``--resync``. Ellers ``None``."""
+
+    @property
+    def progress_text(self) -> str:
+        """"Resync er færdig", "Resync er færdig med fejl" eller tom."""
+        return RESULT_TEXTS.get(self.progress.result, "") if self.progress is not None else ""
 
     @property
     def message(self) -> str:
@@ -219,8 +241,11 @@ def _logged_in(account: Account) -> bool:
 
 
 def determine(account: Account, unit: UnitStatus | None, processes: list[OnedriveProcess],
-              now: datetime) -> ServiceState:
-    """Tilstanden efter tabellen i feature 0004."""
+              now: datetime, progress: SyncProgress | None = None) -> ServiceState:
+    """Tilstanden efter tabellen i feature 0004 og "Resynkroniserer" fra feature 0009.
+
+    ``progress`` er fremdriften for kørslen, når hovedprocessen har ``--resync``.
+    """
     if not account.service or unit is None or unit.load_state == "not-found":
         return ServiceState(NO_SERVICE)
     if not _logged_in(account):
@@ -230,6 +255,9 @@ def determine(account: Account, unit: UnitStatus | None, processes: list[Onedriv
         return ServiceState(FOREIGN)
     if unit.exec_main_status == RESYNC_EXIT_STATUS and unit.active_state in ("failed", "inactive"):
         return ServiceState(NEEDS_RESYNC, format_since(unit.inactive_enter, now))
+    # Stopper servicen, viser kortet "Stopper", også hvis hovedprocessen stadig resynkroniserer.
+    if progress is not None and not progress.result and unit.active_state != "deactivating":
+        return ServiceState(RESYNCING, format_since(unit.active_enter, now))
     key = _BY_ACTIVE_STATE.get(unit.active_state, STOPPED)
     if key == RUNNING:
         since = format_since(unit.active_enter, now)
@@ -239,6 +267,55 @@ def determine(account: Account, unit: UnitStatus | None, processes: list[Onedriv
         since = ""
     return ServiceState(key, since)
 
+
+def has_resync(unit: UnitStatus, proc_root: Path = PROC_ROOT) -> bool:
+    """Har servicens hovedproces ``--resync`` på kommandolinjen?"""
+    return RESYNC_FLAG in cmdline(unit.main_pid, proc_root)
+
+
+@dataclass
+class _Invocation:
+    invocation_id: str
+    cursor: str = ""
+    progress: SyncProgress = field(default_factory=SyncProgress)
+
+
+class ResyncTracker:
+    """Fremdriften for hver services nuværende kørsel med ``--resync``.
+
+    Første gang læser trackeren hele kørslens journal. Derefter læser den kun
+    linjerne efter den sidste cursor. Når kørslen har et resultat, læser den
+    ikke journalen igen. To tråde kan kalde trackeren på samme tid.
+    """
+
+    def __init__(self, run: Run | None = None):
+        self._run = run
+        self._lock = threading.Lock()
+        self._invocations: dict[str, _Invocation] = {}
+
+    def update(self, service: str, invocation_id: str) -> SyncProgress:
+        """Læs de nye linjer for kørslen, og giv en kopi af fremdriften."""
+        with self._lock:
+            current = self._invocations.get(service)
+            if current is None or current.invocation_id != invocation_id:
+                current = _Invocation(invocation_id)
+                self._invocations[service] = current
+            if not current.progress.result:
+                entries, current.cursor = journal.invocation_lines(
+                    service, invocation_id, current.cursor, run=self._run)
+                for entry in entries:
+                    if entry.identifier == journal.CLIENT_IDENTIFIER:
+                        current.progress.feed(entry.message, entry.timestamp or None)
+            return current.progress.snapshot()
+
+    def invocation(self, service: str) -> str:
+        with self._lock:
+            current = self._invocations.get(service)
+            return current.invocation_id if current is not None else ""
+
+    def forget(self, service: str) -> None:
+        with self._lock:
+            self._invocations.pop(service, None)
 
 
 def initial_status(account: Account) -> AccountStatus:
@@ -261,14 +338,28 @@ class StatusReader:
         self._now = now or datetime.now
         self._last: dict[str, AccountStatus] = {}
         self._errors: dict[str, tuple[tuple, str]] = {}
+        self._tracker = ResyncTracker(run)
 
     def _processes(self, account: Account) -> list[OnedriveProcess]:
         return find_processes(account.confdir, home=self._home, proc_root=self._proc_root)
 
-    def _state(self, account: Account, units: dict[str, UnitStatus]) -> ServiceState:
+    def _progress(self, account: Account, unit: UnitStatus) -> SyncProgress | None:
+        if unit.main_pid <= 0 or not unit.invocation_id or not has_resync(unit, self._proc_root):
+            self._tracker.forget(account.service)
+            return None
+        return self._tracker.update(account.service, unit.invocation_id)
+
+    def _state_and_progress(self, account: Account,
+                            units: dict[str, UnitStatus]) -> tuple[ServiceState, SyncProgress | None]:
         unit = units.get(account.service) if account.service else None
         processes = self._processes(account) if unit is not None and _logged_in(account) else []
-        return determine(account, unit, processes, self._now())
+        progress = None
+        if unit is not None and unit.load_state != "not-found" and _logged_in(account):
+            progress = self._progress(account, unit)
+        return determine(account, unit, processes, self._now(), progress), progress
+
+    def _state(self, account: Account, units: dict[str, UnitStatus]) -> ServiceState:
+        return self._state_and_progress(account, units)[0]
 
     def _error_line(self, account: Account, state: ServiceState, unit: UnitStatus) -> str:
         if state.key not in (FAILED, NEEDS_RESYNC):
@@ -297,10 +388,23 @@ class StatusReader:
                 last = self._last.get(key, initial_status(account))
                 result[key] = replace(last, stale=True, read_error=error)
                 continue
-            state = self._state(account, units)
+            state, progress = self._state_and_progress(account, units)
             line = self._error_line(account, state, units[account.service]) if account.service else ""
-            result[key] = AccountStatus(state, line)
+            result[key] = AccountStatus(state, line, progress=progress)
         self._last.update({k: v for k, v in result.items() if not v.stale})
+        return result
+
+    def read_progress(self, accounts: list[Account]) -> dict[str, SyncProgress]:
+        """Læs de nye linjer for konti, der står som "Resynkroniserer". Kalder ikke ``systemctl``."""
+        result: dict[str, SyncProgress] = {}
+        for account in accounts:
+            key = str(account.confdir)
+            last = self._last.get(key)
+            if last is None or last.state.key != RESYNCING or not account.service:
+                continue
+            invocation = self._tracker.invocation(account.service)
+            if invocation:
+                result[key] = self._tracker.update(account.service, invocation)
         return result
 
     def read_state(self, account: Account) -> ServiceState:

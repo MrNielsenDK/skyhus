@@ -72,3 +72,14 @@ def find_processes(confdir: Path, *, home: Path | None = None,
         if confdir_of(args, home) == target:
             found.append(OnedriveProcess(int(entry.name), args, _unit_of(entry)))
     return found
+
+
+def cmdline(pid: int, proc_root: Path = PROC_ROOT) -> list[str]:
+    """Kommandolinjen for processen ``pid`` fra ``/proc/<pid>/cmdline``. Tom, hvis den ikke kan læses."""
+    if pid <= 0:
+        return []
+    try:
+        raw = (Path(proc_root) / str(pid) / "cmdline").read_bytes()
+    except OSError:
+        return []
+    return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]

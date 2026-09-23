@@ -113,3 +113,63 @@ def test_read_latest_error_gives_empty_when_journalctl_fails():
     run = ScriptedRun(fail={"journalctl"})
 
     assert journal.read_latest_error("onedrive-privat.service", run=run) == ""
+
+
+# Feature 0009: linjerne fra servicens nuværende kørsel.
+
+INVOCATION = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+
+
+def invocation_entry(message, cursor, identifier="onedrive", when="1790143816219521"):
+    """En linje, som ``journalctl -o json`` skriver den for en user-service."""
+    return json.dumps({"SYSLOG_IDENTIFIER": identifier, "_PID": "315472", "PRIORITY": "6",
+                       "_TRANSPORT": "stdout", "_SYSTEMD_USER_UNIT": "onedrive-privat.service",
+                       "_SYSTEMD_INVOCATION_ID": INVOCATION, "__REALTIME_TIMESTAMP": when,
+                       "__CURSOR": cursor, "MESSAGE": message}, ensure_ascii=False)
+
+
+def test_invocation_lines_filters_on_the_current_invocation():
+    run = ScriptedRun(outputs={"journalctl": journal_output(
+        invocation_entry("Configuration file successfully loaded", "s=1;i=a"),
+        invocation_entry("Number of items to download from Microsoft OneDrive: 120", "s=1;i=b"))})
+
+    entries, cursor = journal.invocation_lines("onedrive-privat.service", INVOCATION, run=run)
+
+    assert run.calls == [["journalctl", "--user", "-u", "onedrive-privat.service",
+                          f"_SYSTEMD_INVOCATION_ID={INVOCATION}", "-o", "json", "--no-pager"]]
+    assert [e.message for e in entries] == ["Configuration file successfully loaded",
+                                            "Number of items to download from Microsoft OneDrive: 120"]
+    assert entries[0].identifier == "onedrive"
+    assert entries[0].timestamp == 1790143816.219521
+    assert cursor == "s=1;i=b"
+
+
+def test_invocation_lines_after_cursor_gives_only_new_lines():
+    run = ScriptedRun(outputs={"journalctl": journal_output(
+        invocation_entry("Downloading file: A/b.txt ... done", "s=1;i=c"))})
+
+    entries, cursor = journal.invocation_lines("onedrive-privat.service", INVOCATION,
+                                               after_cursor="s=1;i=b", run=run)
+
+    assert run.calls == [["journalctl", "--user", "-u", "onedrive-privat.service",
+                          f"_SYSTEMD_INVOCATION_ID={INVOCATION}", "-o", "json", "--no-pager",
+                          "--after-cursor=s=1;i=b"]]
+    assert [e.message for e in entries] == ["Downloading file: A/b.txt ... done"]
+    assert cursor == "s=1;i=c"
+
+
+def test_invocation_lines_without_new_lines_keeps_the_cursor():
+    run = ScriptedRun(outputs={"journalctl": ""})
+
+    entries, cursor = journal.invocation_lines("onedrive-privat.service", INVOCATION,
+                                               after_cursor="s=1;i=b", run=run)
+
+    assert entries == []
+    assert cursor == "s=1;i=b"
+
+
+def test_invocation_lines_gives_nothing_when_journalctl_fails():
+    run = ScriptedRun(fail={"journalctl"})
+
+    assert journal.invocation_lines("onedrive-privat.service", INVOCATION,
+                                    after_cursor="s=1;i=b", run=run) == ([], "s=1;i=b")

@@ -14,7 +14,7 @@ from fakes import ScriptedRun
 from test_process import add_process
 
 PROPERTIES = ("Id,LoadState,ActiveState,SubState,Result,ExecMainStatus,MainPID,"
-              "ActiveEnterTimestamp,InactiveEnterTimestamp")
+              "ActiveEnterTimestamp,InactiveEnterTimestamp,InvocationID")
 
 RUNNING = """\
 Id=onedrive.service
@@ -371,3 +371,175 @@ def test_initial_status_before_first_read(home):
     assert service_state.initial_status(ny).state.label == "Ingen service"
     assert service_state.initial_status(ude).state.label == "Ikke logget ind"
     assert service_state.initial_status(a).state.action == ""
+
+
+# Resync i servicen (feature 0009)
+
+INVOCATION = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+
+
+def journal_line(message, cursor, when=1790143816.0):
+    import json
+    return json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "4242", "_TRANSPORT": "stdout",
+                       "_SYSTEMD_INVOCATION_ID": INVOCATION, "__CURSOR": cursor,
+                       "__REALTIME_TIMESTAMP": str(int(when * 1_000_000)), "MESSAGE": message}) + "\n"
+
+
+def resync_journal(*messages, start=0):
+    return "".join(journal_line(m, f"s=1;i={start + i}", 1790143816.0 + start + i)
+                   for i, m in enumerate(messages))
+
+
+RESYNC_START = (
+    "Reading configuration file: /home/bruger/.config/onedrive-privat/config",
+    "Fetching items from the OneDrive API for Drive ID: 0a1b2c3d4e5f6789 ....",
+    "Processing 5821 applicable JSON items received from Microsoft OneDrive .... ",
+    "Number of items to download from Microsoft OneDrive: 120",
+    "Downloading file: Ferie/Strand/IMG_0001.JPG ... done",
+    "Downloading file: Ferie/Strand/IMG_0002.JPG ... done",
+    "Downloading file: Tegninger/hus.psd ... failed!",
+    "Downloading: Ferie/Klip/klip_0001.avi ... 45%   |  ETA    00:01:10",
+)
+
+
+def resync_reader(home, tmp_path, journal_text, *, args=("--monitor", "--resync", "--resync-auth"),
+                  pid="4242"):
+    a = account(home, "onedrive-privat", "onedrive-privat.service")
+    proc = tmp_path / "proc"
+    add_process(proc, 4242, ["/usr/bin/onedrive", *args, f"--confdir={a.confdir}"],
+                "0::/user.slice/user-1000.slice/user@1000.service/app.slice/onedrive-privat.service\n")
+    run = ScriptedRun(outputs={"show": unit("onedrive-privat.service", MainPID=pid, InvocationID=INVOCATION),
+                               "journalctl": journal_text})
+    reader = StatusReader(home=home, run=run, proc_root=proc, now=lambda: datetime(2026, 9, 23, 12, 0))
+    return reader, a, run
+
+
+def journal_calls(run):
+    return [c for c in run.calls if c[0] == "journalctl"]
+
+
+def test_resync_without_a_final_line_is_resyncing(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START))
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.key == service_state.RESYNCING
+    assert status.state.label == "Resynkroniserer"
+    assert status.state.tone == "warning"
+    assert status.state.action == ""
+    assert status.progress.phase == "Downloader filer"
+    assert (status.progress.done, status.progress.total) == (2, 120)
+    assert status.progress.latest == "Ferie/Klip/klip_0001.avi"
+    assert status.progress.percent == 45
+
+
+def test_journalctl_filters_on_the_current_invocation(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START))
+
+    reader.read([a])
+
+    assert journal_calls(run) == [["journalctl", "--user", "-u", "onedrive-privat.service",
+                                   f"_SYSTEMD_INVOCATION_ID={INVOCATION}", "-o", "json", "--no-pager"]]
+
+
+def test_resync_with_complete_line_is_running_and_shows_the_result(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(
+        *RESYNC_START, "Sync with Microsoft OneDrive is complete"))
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.key == service_state.RUNNING
+    assert status.state.label == "Kører"
+    assert status.progress.result == "complete"
+    assert status.progress_text == "Resync er færdig"
+
+
+def test_resync_with_failed_items_is_complete_with_errors(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(
+        *RESYNC_START,
+        "Failed items to download to/from Microsoft OneDrive: 2",
+        "Sync with Microsoft OneDrive has completed, however there are items that failed to sync."))
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.label == "Kører"
+    assert status.progress.failed == 2
+    assert status.progress_text == "Resync er færdig med fejl"
+
+
+def test_main_process_without_resync_is_never_resyncing(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START), args=("--monitor",))
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.key == service_state.RUNNING
+    assert status.progress is None
+    assert journal_calls(run) == []
+
+
+def test_resync_process_that_is_not_main_pid_is_not_resyncing(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START), pid="999")
+
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.state.key != service_state.RESYNCING
+
+
+def test_start_during_resync_reads_the_whole_invocation_then_only_new_lines(home, tmp_path):
+    lines = [f"Downloading file: Ferie/IMG_{i:04}.JPG ... done" for i in range(30)]
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(
+        "Number of items to download from Microsoft OneDrive: 120", *lines))
+
+    first = reader.read([a])[str(a.confdir)]
+    run.outputs["journalctl"] = resync_journal("Downloading file: Ferie/IMG_0030.JPG ... done", start=31)
+    second = reader.read([a])[str(a.confdir)]
+
+    assert (first.progress.done, first.progress.total) == (30, 120)
+    assert (second.progress.done, second.progress.total) == (31, 120)
+    calls = journal_calls(run)
+    assert "--after-cursor=s=1;i=30" not in calls[0]
+    assert calls[1][-1] == "--after-cursor=s=1;i=30"
+
+
+def test_new_invocation_starts_the_progress_again(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(
+        "Number of items to download from Microsoft OneDrive: 120",
+        "Downloading file: A/b.txt ... done"))
+    reader.read([a])
+
+    run.outputs["show"] = unit("onedrive-privat.service", MainPID="4242", InvocationID="ny0000000000")
+    run.outputs["journalctl"] = resync_journal("Fetching items from the OneDrive API for Drive ID: 0a1b ..")
+    status = reader.read([a])[str(a.confdir)]
+
+    assert status.progress.done == 0
+    assert status.progress.phase == "Henter listen fra OneDrive"
+    assert "--after-cursor" not in " ".join(journal_calls(run)[-1])
+
+
+def test_progress_is_not_read_again_after_the_result(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(
+        *RESYNC_START, "Sync with Microsoft OneDrive is complete"))
+    reader.read([a])
+
+    reader.read([a])
+    reader.read_progress([a])
+
+    assert len(journal_calls(run)) == 1
+
+
+def test_read_progress_reads_only_new_lines(home, tmp_path):
+    reader, a, run = resync_reader(home, tmp_path, resync_journal(*RESYNC_START))
+    reader.read([a])
+    run.outputs["journalctl"] = resync_journal("Downloading file: Ferie/Strand/IMG_0003.JPG ... done",
+                                               start=len(RESYNC_START))
+
+    progress = reader.read_progress([a])[str(a.confdir)]
+
+    assert progress.done == 3
+    assert journal_calls(run)[-1][-1] == f"--after-cursor=s=1;i={len(RESYNC_START) - 1}"
+    assert [c for c in run.calls if c[0] == "systemctl"] == [
+        ["systemctl", "--user", "show", "onedrive-privat.service", "-p", PROPERTIES]]
+
+
+def test_resyncing_counts_as_settled_after_a_click():
+    assert service_state.RESYNCING in service_state.SETTLED

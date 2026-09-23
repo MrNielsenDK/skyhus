@@ -10,6 +10,9 @@ Reglen:
    ``Error Message:``-linje blandt dem, bruger applikationen den.
 3. Findes ingen fejllinje fra ``onedrive``, så tag den nyeste linje fra
    ``systemd`` med ``Failed with result``.
+
+``invocation_lines()`` giver linjerne fra servicens nuværende kørsel
+(feature 0009). Med en cursor giver den kun linjerne efter cursoren.
 """
 
 from __future__ import annotations
@@ -41,10 +44,20 @@ class Entry:
     identifier: str
     pid: str
     message: str
+    timestamp: float = 0.0
+    """``__REALTIME_TIMESTAMP`` som sekunder siden 1970. 0, hvis feltet mangler."""
 
 
 def journal_command(service: str) -> list[str]:
     return ["journalctl", "--user", "-u", service, "-n", str(JOURNAL_LINES), "-o", "json", "--no-pager"]
+
+
+def invocation_command(service: str, invocation_id: str, after_cursor: str = "") -> list[str]:
+    cmd = ["journalctl", "--user", "-u", service, f"_SYSTEMD_INVOCATION_ID={invocation_id}",
+           "-o", "json", "--no-pager"]
+    if after_cursor:
+        cmd.append(f"--after-cursor={after_cursor}")
+    return cmd
 
 
 def _message(value) -> str:
@@ -57,9 +70,14 @@ def _message(value) -> str:
     return value if isinstance(value, str) else ""
 
 
-def parse_entries(output: str) -> list[Entry]:
-    """Linjerne fra ``journalctl -o json``, den ældste først."""
-    entries = []
+def _timestamp(value) -> float:
+    try:
+        return int(value) / 1_000_000
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _records(output: str):
     for line in output.splitlines():
         line = line.strip()
         if not line.startswith("{"):
@@ -68,9 +86,18 @@ def parse_entries(output: str) -> list[Entry]:
             data = json.loads(line)
         except json.JSONDecodeError:
             continue
-        entries.append(Entry(str(data.get("SYSLOG_IDENTIFIER", "")), str(data.get("_PID", "")),
-                             _message(data.get("MESSAGE"))))
-    return entries
+        if isinstance(data, dict):
+            yield data
+
+
+def _entry(data: dict) -> Entry:
+    return Entry(str(data.get("SYSLOG_IDENTIFIER", "")), str(data.get("_PID", "")),
+                 _message(data.get("MESSAGE")), _timestamp(data.get("__REALTIME_TIMESTAMP")))
+
+
+def parse_entries(output: str) -> list[Entry]:
+    """Linjerne fra ``journalctl -o json``, den ældste først."""
+    return [_entry(data) for data in _records(output)]
 
 
 def _one_line(text: str) -> str:
@@ -124,3 +151,27 @@ def read_latest_error(service: str, run: Run | None = None) -> str:
         log.warning("journalctl fejlede for %s: %s", service, (result.stderr or "").strip())
         return ""
     return latest_error(parse_entries(result.stdout or ""))
+
+
+def invocation_lines(service: str, invocation_id: str, after_cursor: str = "",
+                     run: Run | None = None) -> tuple[list[Entry], str]:
+    """Linjerne fra servicens kørsel ``invocation_id`` og den sidste cursor.
+
+    Med ``after_cursor`` giver funktionen kun linjerne efter den. Er der ingen
+    nye linjer, eller fejler ``journalctl``, er cursoren uændret.
+    """
+    run = run or sideeffects.run
+    cmd = invocation_command(service, invocation_id, after_cursor)
+    try:
+        result = run(cmd, capture_output=True, text=True, timeout=JOURNALCTL_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("Kan ikke læse journalen for %s: %s", service, exc)
+        return [], after_cursor
+    if result.returncode != 0:
+        log.warning("journalctl fejlede for %s: %s", service, (result.stderr or "").strip())
+        return [], after_cursor
+    entries, cursor = [], after_cursor
+    for data in _records(result.stdout or ""):
+        entries.append(_entry(data))
+        cursor = str(data.get("__CURSOR") or cursor)
+    return entries, cursor

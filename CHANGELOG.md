@@ -2,6 +2,13 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.6.0] - 2026-09-23
+
+### Added
+- Arket "Ændrer mappevalg" viser de 5 trin i en ændring af mappevalget og tilstanden for hvert trin. Under uploaden viser arket antallet af uploadede filer og den seneste fil. Under papirkurven viser det antallet af flyttede stier. Se `docs/features/0009-vis-fremdrift.md`.
+- Kortet "Service" har tilstanden "Resynkroniserer", når servicen kører med `--resync`. Kortet viser fasen, en bjælke, den seneste fil og tiden siden start. Statusprikken i sidebjælken har farven for advarsel. Se `docs/features/0009-vis-fremdrift.md`.
+- Når klienten er færdig med `--resync`, viser kortet "Resync er færdig" eller "Resync er færdig med fejl" med antallet af fejlede elementer. Fremdriften er den samme, når brugeren åbner applikationen igen. Se `docs/features/0009-vis-fremdrift.md`.
+
 ## [0.5.3] - 2026-09-23
 
 ### Fixed

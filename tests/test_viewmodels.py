@@ -12,7 +12,7 @@ from onedrive_gui.registry import Registry  # noqa: E402
 from onedrive_gui.viewmodels import AppController  # noqa: E402
 
 from conftest import RecordingRun, make_account_dir  # noqa: E402
-from fakes import FakeGraph, FakePopen, ScriptedRun, folder, http_error  # noqa: E402
+from fakes import FakeGraph, FakePopen, FakeUploadPopen, ScriptedRun, folder, http_error  # noqa: E402
 
 ROOT_CHILDREN = "/v1.0/me/drive/root/children"
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -258,7 +258,7 @@ def test_confirming_removal_applies_the_change(app, home, tmp_path):
     confdir = synced_account(home)
     run = ScriptedRun(outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
     trashed = []
-    controller = make_controller(home, tmp_path, run=run,
+    controller = make_controller(home, tmp_path, run=run, popen=FakeUploadPopen(),
                                  trash=lambda p: trashed.append(p) or True)
     controller.openFolderPicker(str(confdir))
     wait_for_picker(controller, "open")
@@ -278,7 +278,7 @@ def test_only_adding_folders_skips_confirmation(app, home, tmp_path):
     confdir = synced_account(home)
     (confdir / "sync_list").write_text("/A/\n")
     run = ScriptedRun(outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
-    controller = make_controller(home, tmp_path, run=run, trash=lambda p: True)
+    controller = make_controller(home, tmp_path, run=run, popen=FakeUploadPopen(), trash=lambda p: True)
     controller.openFolderPicker(str(confdir))
     wait_for_picker(controller, "open")
 
@@ -748,7 +748,7 @@ def test_apply_execute_blocks_close_until_restart_is_done(app, home, tmp_path):
     (confdir / "sync_list").write_text("/A/\n")
     gate = Gate("restart")
     run = gated_run(gate, outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
-    controller = make_controller(home, tmp_path, run=run, trash=lambda p: True)
+    controller = make_controller(home, tmp_path, run=run, popen=FakeUploadPopen(), trash=lambda p: True)
     emitted = close_signals(controller)
     controller.openFolderPicker(str(confdir))
     wait_for_picker(controller, "open")
@@ -909,3 +909,208 @@ def test_failed_stop_after_cancel_shows_the_error(app, home, tmp_path):
     assert "Access denied" in controller.message
     assert popen.processes == []
     assert (confdir / "refresh_token").read_text() == "token"
+
+
+# Fremdrift (feature 0009)
+
+UPLOAD_LINES = [
+    "Scanning the local file system '~/OneDrive-X' for new data to upload ..... ",
+    "New items to upload to Microsoft OneDrive: 3",
+    "Uploading new file: ./A/noter.md ... done",
+    "Uploading new file: ./A/budget.ods ... done",
+    "Uploading new file: ./A/plan.txt ... done",
+    "Sync with Microsoft OneDrive is complete",
+]
+
+
+def start_change(home, tmp_path, popen):
+    confdir = synced_account(home)
+    run = ScriptedRun(outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
+    controller = make_controller(home, tmp_path, run=run, popen=popen, trash=lambda p: True)
+    controller.openFolderPicker(str(confdir))
+    wait_for_picker(controller, "open")
+    controller.toggleFolder(row_of(controller, "B"))
+    controller.acceptPicker()
+    wait_for_picker(controller, "confirm")
+    controller.confirmRemoval()
+    return controller, confdir, run
+
+
+def step_states(controller):
+    return [s["state"] for s in controller.applySteps]
+
+
+def test_apply_sheet_shows_the_upload_while_it_runs(app, home, tmp_path):
+    import threading
+    reached, release = threading.Event(), threading.Event()
+
+    def on_line(line):
+        if "plan.txt" in line:
+            reached.set()
+            assert release.wait(5)
+
+    controller, confdir, run = start_change(home, tmp_path, FakeUploadPopen(UPLOAD_LINES, on_line=on_line))
+    assert reached.wait(5)
+    pump(controller, lambda: controller.applySteps[1]["detail"] == "2 af 3 filer")
+
+    assert controller.applyState == "running"
+    assert [s["title"] for s in controller.applySteps] == [
+        "Stopper servicen", "Uploader lokale ændringer", "Skriver de nye regler",
+        "Flytter til papirkurven", "Starter servicen med resync"]
+    assert step_states(controller) == ["done", "running", "waiting", "waiting", "waiting"]
+    upload = controller.applySteps[1]
+    assert upload["latest"] == "A/budget.ods"
+    assert upload["determinate"] is True
+    assert upload["value"] == pytest.approx(2 / 3)
+    assert upload["stateText"] == "I gang"
+
+    release.set()
+    pump(controller, lambda: controller.pickerState == "closed")
+    assert controller.applyState == ""
+
+
+def test_apply_sheet_counts_the_trash_step(app, home, tmp_path):
+    confdir = synced_account(home)
+    gate = Gate("restart")
+    run = gated_run(gate, outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
+    controller = make_controller(home, tmp_path, run=run, popen=FakeUploadPopen(UPLOAD_LINES),
+                                 trash=lambda p: True)
+    controller.openFolderPicker(str(confdir))
+    wait_for_picker(controller, "open")
+    controller.toggleFolder(row_of(controller, "B"))
+    controller.acceptPicker()
+    wait_for_picker(controller, "confirm")
+    controller.confirmRemoval()
+    assert gate.reached.wait(5)
+    pump(controller, lambda: step_states(controller)[4] == "running")
+
+    assert step_states(controller) == ["done", "done", "done", "done", "running"]
+    assert controller.applySteps[3]["detail"] == "1 af 1 sti"
+    assert controller.applySteps[1]["detail"] == "3 af 3 filer"
+    gate.release.set()
+    pump(controller, lambda: controller.pickerState == "closed")
+
+
+def test_failed_upload_keeps_the_sheet_with_the_failed_step(app, home, tmp_path):
+    controller, confdir, run = start_change(
+        home, tmp_path, FakeUploadPopen(["ERROR: Cannot connect to Microsoft OneDrive Service"], returncode=1))
+
+    pump(controller, lambda: controller.pickerState == "open")
+
+    assert controller.applyState == "failed"
+    assert step_states(controller) == ["done", "failed", "waiting", "waiting", "waiting"]
+    assert "Cannot connect" in controller.pickerError
+    controller.closeApplyProgress()
+    assert controller.applyState == ""
+    assert controller.pickerState == "open"
+
+
+def test_account_without_items_does_not_show_the_apply_sheet(app, home, tmp_path):
+    confdir = make_account_dir(home, "onedrive-x", config='sync_dir = "~/OneDrive-X"\n', refresh_token=True)
+    controller = make_controller(home, tmp_path, run=ScriptedRun(), popen=FakeUploadPopen())
+    states = set()
+    controller.openFolderPicker(str(confdir))
+    wait_for_picker(controller, "open")
+    controller.toggleFolder(row_of(controller, "A"))
+    controller.acceptPicker()
+    pump(controller, lambda: states.add(controller.applyState) or controller.pickerState == "closed")
+
+    assert states == {""}
+
+
+INVOCATION = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+
+
+def resync_show(name):
+    return service_show(name) + f"InvocationID={INVOCATION}\n"
+
+
+def resync_journal(*messages, start=0):
+    import json
+    return "".join(json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "4242",
+                               "_SYSTEMD_INVOCATION_ID": INVOCATION, "__CURSOR": f"s=1;i={start + i}",
+                               "__REALTIME_TIMESTAMP": str((1790143816 + start + i) * 1_000_000),
+                               "MESSAGE": m}) + "\n"
+                   for i, m in enumerate(messages))
+
+
+def resync_controller(home, tmp_path, journal_text):
+    from test_process import add_process
+    confdir = service_account(home)
+    proc = tmp_path / "proc"
+    proc.mkdir(exist_ok=True)
+    add_process(proc, 4242, ["/usr/bin/onedrive", "--monitor", f"--confdir={confdir}",
+                             "--resync", "--resync-auth"],
+                "0::/user.slice/user@1000.service/app.slice/onedrive-x.service\n")
+    run = ScriptedRun(outputs={"show": resync_show("onedrive-x.service"), "journalctl": journal_text})
+    controller = make_controller(home, tmp_path, run=run)
+    return controller, confdir, run
+
+
+def test_resync_progress_appears_in_the_account_model(app, home, tmp_path):
+    lines = [f"Downloading file: Ferie/IMG_{i:04}.JPG ... done" for i in range(30)]
+    controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
+        "Number of items to download from Microsoft OneDrive: 120", *lines))
+
+    read_status_now(controller)
+
+    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceTone") == "warning"
+    progress = role(controller, "serviceProgress")
+    assert progress["visible"] is True
+    assert progress["active"] is True
+    assert progress["phase"] == "Downloader filer"
+    assert progress["counter"] == "30 af 120 filer"
+    assert progress["determinate"] is True
+    assert progress["value"] == pytest.approx(0.25)
+    assert progress["latest"] == "Ferie/IMG_0029.JPG"
+    assert progress["elapsed"].startswith("Tid siden start: ")
+
+
+def test_progress_job_reads_new_lines(app, home, tmp_path):
+    controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
+        "Number of items to download from Microsoft OneDrive: 120",
+        "Downloading file: Ferie/IMG_0000.JPG ... done"))
+    read_status_now(controller)
+    run.outputs["journalctl"] = resync_journal("Downloading file: Ferie/IMG_0001.JPG ... done", start=2)
+
+    controller.refreshProgress()
+    wait_until(lambda: controller._progress_job is None, controller)
+
+    assert role(controller, "serviceProgress")["counter"] == "2 af 120 filer"
+    assert [c for c in run.calls if c[0] == "journalctl"][-1][-1] == "--after-cursor=s=1;i=1"
+
+
+def test_progress_timer_follows_window_visibility(app, home, tmp_path):
+    service_account(home)
+    controller = make_controller(home, tmp_path, run=ScriptedRun(outputs={"show": service_show("onedrive-x.service")}))
+
+    assert controller._progress_timer.interval() == 2000
+    controller.setWindowVisible(True)
+    assert controller._progress_timer.isActive() is True
+    controller.setWindowVisible(False)
+    assert controller._progress_timer.isActive() is False
+    wait_until(lambda: controller._status_job is None, controller)
+
+
+def test_finished_resync_shows_the_result(app, home, tmp_path):
+    controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
+        "Number of items to download from Microsoft OneDrive: 1",
+        "Downloading file: Ferie/IMG_0000.JPG ... done",
+        "Sync with Microsoft OneDrive is complete"))
+
+    read_status_now(controller)
+
+    assert role(controller, "serviceLabel") == "Kører"
+    progress = role(controller, "serviceProgress")
+    assert progress["active"] is False
+    assert progress["resultText"] == "Resync er færdig"
+
+
+def test_service_without_resync_has_no_progress(app, home, tmp_path):
+    service_account(home)
+    controller = make_controller(home, tmp_path, run=ScriptedRun(outputs={"show": service_show("onedrive-x.service")}))
+
+    read_status_now(controller)
+
+    assert role(controller, "serviceProgress") == {"visible": False}

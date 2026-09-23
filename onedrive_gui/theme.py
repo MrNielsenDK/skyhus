@@ -123,6 +123,9 @@ METRICS = {
     "radiusCheck": 4,
     "checkStroke": 2,
     "treeRowHeight": 30,
+    # Bjælken for fremdrift (feature 0009).
+    "progressHeight": 4,
+    "animIndeterminate": 1200,
 }
 
 DISABLED_OPACITY = 0.4
@@ -290,6 +293,8 @@ class Theme(QObject):
     radiusCheck = _metric_property("radiusCheck")
     checkStroke = _metric_property("checkStroke")
     treeRowHeight = _metric_property("treeRowHeight")
+    progressHeight = _metric_property("progressHeight")
+    animIndeterminate = _metric_property("animIndeterminate")
 
     animEasing = Property(int, lambda self: QEasingCurve.Type.OutCubic.value, constant=True)
     disabledOpacity = Property(float, lambda self: DISABLED_OPACITY, constant=True)

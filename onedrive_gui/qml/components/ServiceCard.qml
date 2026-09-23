@@ -6,6 +6,7 @@ import "." as UI
 
 // Kortet "Service": servicens tilstand, siden hvornår, den seneste fejllinje og en knap.
 // Under kortet står en fejlbesked, hvis en handling fejlede, eller hvis status ikke kan læses.
+// Under "Resynkroniserer" og "Resync er færdig" viser kortet fremdriften (feature 0009).
 ColumnLayout {
     id: serviceCard
     objectName: "serviceCard"
@@ -18,6 +19,10 @@ ColumnLayout {
     property string actionLabel
     property bool busy: false
     property string message
+    // Fremdriften fra AccountListModel.serviceProgress. Tom eller {"visible": false} uden resync.
+    property var progress: ({})
+    readonly property bool progressVisible: progress !== undefined && progress !== null && progress.visible === true
+    readonly property bool progressActive: progressVisible && progress.active === true
 
     signal actionClicked()
 
@@ -58,6 +63,116 @@ ColumnLayout {
                 text: serviceCard.stateLabel
                 font: Theme.body
                 color: Theme.textSecondary
+            }
+        }
+
+        // Fremdriften for --resync: fase, antal, bjælke, seneste fil og tid. Bagefter resultatet.
+        Item {
+            objectName: "serviceProgressRow"
+            Layout.fillWidth: true
+            visible: serviceCard.progressVisible
+            implicitHeight: progressContent.implicitHeight + 2 * Theme.spacingM
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: Theme.spacingM
+                anchors.rightMargin: Theme.spacingM
+                height: Theme.hairline
+                color: Theme.separator
+            }
+
+            ColumnLayout {
+                id: progressContent
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Theme.spacingM
+                anchors.rightMargin: Theme.spacingM
+                spacing: Theme.spacingXS
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: serviceCard.progressActive
+                    spacing: Theme.spacingS
+
+                    Text {
+                        objectName: "serviceProgressPhase"
+                        Layout.fillWidth: true
+                        text: serviceCard.progressVisible ? serviceCard.progress.phase : ""
+                        font: Theme.body
+                        color: Theme.textPrimary
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        objectName: "serviceProgressCounter"
+                        text: serviceCard.progressVisible ? serviceCard.progress.counter : ""
+                        font: Theme.body
+                        color: Theme.textSecondary
+                    }
+                }
+                UI.ProgressBar {
+                    objectName: "serviceProgressBar"
+                    Layout.fillWidth: true
+                    Layout.topMargin: Theme.spacingXS
+                    Layout.bottomMargin: Theme.spacingXS
+                    visible: serviceCard.progressActive
+                    indeterminate: serviceCard.progressVisible && !serviceCard.progress.determinate
+                    value: serviceCard.progressVisible ? serviceCard.progress.value : 0
+                }
+                Text {
+                    objectName: "serviceProgressLatest"
+                    Layout.fillWidth: true
+                    visible: serviceCard.progressActive && text !== ""
+                    text: serviceCard.progressVisible ? serviceCard.progress.latest : ""
+                    font: Theme.caption
+                    color: Theme.textSecondary
+                    elide: Text.ElideMiddle
+                }
+                Text {
+                    objectName: "serviceProgressElapsed"
+                    Layout.fillWidth: true
+                    visible: serviceCard.progressActive && text !== ""
+                    text: serviceCard.progressVisible ? serviceCard.progress.elapsed : ""
+                    font: Theme.caption
+                    color: Theme.textSecondary
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: serviceCard.progressVisible && serviceCard.progress.result !== ""
+                    spacing: Theme.spacingS
+
+                    UI.StatusDot {
+                        Layout.alignment: Qt.AlignTop
+                        Layout.topMargin: Theme.spacingXS + Theme.hairline
+                        tone: serviceCard.progressVisible && serviceCard.progress.result === "complete"
+                              ? "success" : "warning"
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+
+                        Text {
+                            objectName: "serviceProgressResult"
+                            Layout.fillWidth: true
+                            text: serviceCard.progressVisible ? serviceCard.progress.resultText : ""
+                            font: Theme.body
+                            color: Theme.textPrimary
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            objectName: "serviceProgressResultDetail"
+                            Layout.fillWidth: true
+                            visible: text !== ""
+                            text: serviceCard.progressVisible ? serviceCard.progress.resultDetail : ""
+                            font: Theme.caption
+                            color: Theme.textSecondary
+                            wrapMode: Text.Wrap
+                        }
+                    }
+                }
             }
         }
 

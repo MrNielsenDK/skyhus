@@ -14,6 +14,11 @@ lokal sletning og sende den videre til OneDrive.
 
 Før første synkronisering findes ``items.sqlite3`` ikke. Så skriver
 ``execute()`` kun ``sync_list`` og ``sync_root_files``.
+
+``execute()`` kalder ``on_step(step, state, progress)`` ved hvert skift
+(feature 0009). ``step`` er nøglen i ``STEPS``, og ``state`` er ``WAITING``,
+``RUNNING``, ``DONE`` eller ``FAILED``. Under uploaden og papirkurven er
+``progress`` en kopi af en ``SyncProgress``. Ellers er den ``None``.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ from .config import (
     write_sync_root_files,
 )
 from .process import PROC_ROOT, find_processes
+from .progress import SyncProgress
 from .removal import RemovedPath, find_removed
 from .rules import RuleSet, UnknownRuleError
 from .service import SystemctlError
@@ -43,7 +49,26 @@ from .synclist import SelectionError, read_sync_list, write_sync_list
 log = logging.getLogger(__name__)
 
 Run = Callable[..., subprocess.CompletedProcess]
+Popen = Callable[..., object]
 Trash = Callable[[Path], bool]
+
+STOP, UPLOAD, WRITE, TRASH, RESYNC = 1, 2, 3, 4, 5
+STEPS = {
+    STOP: "Stopper servicen",
+    UPLOAD: "Uploader lokale ændringer",
+    WRITE: "Skriver de nye regler",
+    TRASH: "Flytter til papirkurven",
+    RESYNC: "Starter servicen med resync",
+}
+"""De 5 trin i en ændring af mappevalget for en konto, der har synkroniseret før."""
+
+WAITING = "waiting"
+RUNNING = "running"
+DONE = "done"
+FAILED = "failed"
+
+OnStep = Callable[[int, str, "SyncProgress | None"], None]
+UPLOAD_DETAIL_LINES = 5
 
 
 class ApplyError(RuntimeError):
@@ -131,36 +156,77 @@ def _write(change: Change) -> None:
     write_sync_root_files(confdir, change.root_files)
 
 
-def _upload(change: Change, run: Run) -> None:
-    cmd = upload_command(change.account.confdir)
-    log.info("Kører %s", " ".join(cmd))
-    try:
-        # En upload kan tage lang tid. Der er derfor ingen tidsgrænse.
-        result = run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    except OSError as exc:
-        raise ApplyError(f"Kan ikke starte {ONEDRIVE}: {exc}") from None
-    if result.returncode != 0:
-        lines = [line.strip() for line in (result.stderr or result.stdout or "").splitlines() if line.strip()]
-        detail = "\n".join(lines[-5:])
-        raise ApplyError(f"Uploaden af lokale ændringer fejlede med exit-kode {result.returncode}.\n{detail}".strip())
+class Upload:
+    """Uploaden i trin 2. Klientens stdout går linje for linje til ``progress``.
+
+    ``process`` er den kørende proces, mens ``run()`` venter på den.
+    """
+
+    def __init__(self, change: Change, popen: Popen, on_progress: Callable[[SyncProgress], None]):
+        self.command = upload_command(change.account.confdir)
+        self.progress = SyncProgress()
+        self.process = None
+        self._popen = popen
+        self._on_progress = on_progress
+        self._tail: list[str] = []
+
+    def run(self) -> None:
+        """Kør uploaden til ende. En fejl giver ``ApplyError`` med de sidste linjer fra klienten."""
+        log.info("Kører %s", " ".join(self.command))
+        try:
+            # En upload kan tage lang tid. Der er derfor ingen tidsgrænse.
+            self.process = self._popen(self.command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                       stdin=subprocess.DEVNULL, text=True, errors="replace")
+        except OSError as exc:
+            raise ApplyError(f"Kan ikke starte {ONEDRIVE}: {exc}") from None
+        if self.process.stdout is not None:
+            for line in self.process.stdout:
+                self._line(line)
+        returncode = self.process.wait()
+        if returncode != 0:
+            detail = "\n".join(self._tail)
+            raise ApplyError(f"Uploaden af lokale ændringer fejlede med exit-kode {returncode}.\n{detail}".strip())
+
+    def _line(self, line: str) -> None:
+        text = line.strip()
+        if text:
+            self._tail = (self._tail + [text])[-UPLOAD_DETAIL_LINES:]
+        if self.progress.feed(line):
+            self._on_progress(self.progress.snapshot())
 
 
 def default_trash(path: Path) -> bool:
     return sideeffects.trash(path)
 
 
+def _report(on_step: OnStep | None, step: int, state: str, progress: SyncProgress | None = None) -> None:
+    if on_step is not None:
+        on_step(step, state, progress.snapshot() if progress is not None else None)
+
+
 def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
-            trash: Trash | None = None, proc_root: Path = PROC_ROOT) -> Result:
+            popen: Popen | None = None, trash: Trash | None = None, proc_root: Path = PROC_ROOT,
+            on_step: OnStep | None = None) -> Result:
     run = run or sideeffects.run
+    popen = popen or sideeffects.popen
     trash = trash or default_trash
     if not change.synced:
-        _write(change)
+        _report(on_step, WRITE, RUNNING)
+        try:
+            _write(change)
+        except BaseException:
+            _report(on_step, WRITE, FAILED)
+            raise
+        _report(on_step, WRITE, DONE)
         return Result(resynced=False)
 
     service = change.account.service
+    step = STOP
+    _report(on_step, STOP, RUNNING)
     try:
         service_control.stop(service, run=run)
     except SystemctlError as exc:
+        _report(on_step, STOP, FAILED)
         raise ApplyError(f"Kan ikke stoppe {service}:\n{exc}") from None
 
     try:
@@ -168,15 +234,26 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         if remaining:
             raise ApplyError("onedrive kører stadig for kontoen, efter at servicen er stoppet.\n"
                              + _describe_processes(remaining))
-        _upload(change, run)
+        _report(on_step, STOP, DONE)
+        step = UPLOAD
+        upload = Upload(change, popen, lambda progress: _report(on_step, UPLOAD, RUNNING, progress))
+        _report(on_step, UPLOAD, RUNNING, upload.progress)
+        upload.run()
+        _report(on_step, UPLOAD, DONE, upload.progress)
+        step = WRITE
+        _report(on_step, WRITE, RUNNING)
         _write(change)
+        _report(on_step, WRITE, DONE)
     except (ApplyError, SelectionError, OSError) as exc:
+        _report(on_step, step, FAILED)
         _start_again(service, run)
         if isinstance(exc, OSError):
             raise ApplyError(f"Kan ikke skrive kontoens filer: {exc}") from None
         raise
 
     failures = []
+    moved_count = SyncProgress(total=len(change.removed))
+    _report(on_step, TRASH, RUNNING, moved_count)
     for removed in change.removed:
         try:
             moved = trash(removed.path)
@@ -186,11 +263,18 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         if not moved:
             log.warning("Kan ikke flytte %s til papirkurven", removed.path)
             failures.append(removed.path)
+        moved_count.done += 1
+        moved_count.latest = str(removed.path)
+        _report(on_step, TRASH, RUNNING, moved_count)
+    _report(on_step, TRASH, DONE, moved_count)
 
+    _report(on_step, RESYNC, RUNNING)
     try:
         service_control.restart_with_resync(service, home=home, run=run)
     except (SystemctlError, OSError) as exc:
+        _report(on_step, RESYNC, FAILED)
         raise ApplyError(f"Mappevalget er gemt, men {service} startede ikke med --resync:\n{exc}") from None
+    _report(on_step, RESYNC, DONE)
     return Result(resynced=True, trash_failures=failures)
 
 

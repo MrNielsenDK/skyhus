@@ -1,7 +1,7 @@
 # Vis fremdrift under upload, papirkurv og resync
 
 Version: 0.6.0
-Status: planlagt
+Status: udviklet
 Oprettet: 2026-09-23
 
 ## Problem

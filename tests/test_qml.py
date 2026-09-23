@@ -395,3 +395,134 @@ def test_closing_during_a_restart_shows_the_closing_sheet(load, home, tmp_path):
         time.sleep(0.01)
     assert root.property("visible") is False
     assert warnings == []
+
+
+# Fremdrift (feature 0009)
+
+def pump_until(controller, predicate, timeout=5.0):
+    """Kør timerne i hånden, til ``predicate`` er sand. QML ser ændringerne efter hver runde."""
+    import time
+    app = QtGui.QGuiApplication.instance()
+    end = time.monotonic() + timeout
+    while True:
+        controller._poll_picker()
+        controller._poll_status()
+        app.processEvents()
+        if predicate() or time.monotonic() >= end:
+            break
+        time.sleep(0.01)
+    assert predicate()
+
+
+def test_apply_progress_sheet_shows_the_five_steps(load, home, tmp_path):
+    import threading
+    from fakes import FakeUploadPopen
+    confdir = make_account_dir(home, "onedrive-x", config='sync_dir = "~/OneDrive-X"\n',
+                               refresh_token=True, items=True)
+    (confdir / "sync_list").write_text("/A/\n")
+    (home / "OneDrive-X" / "A").mkdir(parents=True)
+    unit = home / ".config" / "systemd" / "user" / "onedrive-x.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text('[Service]\nExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-x"\n')
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    reached, release = threading.Event(), threading.Event()
+
+    def on_line(line):
+        if "budget" in line:
+            reached.set()
+            assert release.wait(5)
+
+    popen = FakeUploadPopen(["New items to upload to Microsoft OneDrive: 3",
+                             "Uploading new file: ./A/noter.md ... done",
+                             "Uploading new file: ./A/budget.ods ... done"], on_line=on_line)
+    graph = FakeGraph({"/v1.0/me/drive/root/children": {"value": [folder("A"), folder("B")]}})
+    engine, controller, warnings = load(home, opener=graph, proc_root=proc, popen=popen,
+                                        run=ScriptedRun(outputs={"cat": unit.read_text()}),
+                                        trash=lambda p: True)
+    root = engine.rootObjects()[0]
+    controller.openFolderPicker(str(confdir))
+    pump_until(controller, lambda: controller.pickerState == "open")
+    controller.toggleFolder(1)
+    controller.acceptPicker()
+    pump_until(controller, reached.is_set)
+    pump_until(controller, lambda: controller.applySteps and controller.applySteps[1]["detail"] == "1 af 3 filer")
+
+    sheet = root.findChild(QObject, "applyProgressSheet")
+    assert sheet.property("visible") is True
+    assert sheet.property("title") == "Ændrer mappevalg"
+    rows = visible_items(root, "applyStepRow")
+    assert len(rows) == 5
+    bars = visible_items(root, "applyStepBar")
+    assert len(bars) == 1
+    assert bars[0].property("indeterminate") is False
+    assert bars[0].property("value") == pytest.approx(1 / 3)
+    release.set()
+    pump_until(controller, lambda: controller.pickerState == "closed")
+    assert warnings == []
+
+
+def resync_qml(home, tmp_path, *messages):
+    import json
+    from fakes import ScriptedRun
+    from test_process import add_process
+    service_home(home)
+    proc = tmp_path / "proc"
+    add_process(proc, 4242, ["/usr/bin/onedrive", "--monitor", "--confdir=" + str(home / ".config" / "onedrive-x"),
+                             "--resync", "--resync-auth"],
+                "0::/user.slice/user@1000.service/app.slice/onedrive-x.service\n")
+    journal = "".join(json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "4242",
+                                  "__CURSOR": f"s=1;i={i}", "__REALTIME_TIMESTAMP": "1790143816000000",
+                                  "MESSAGE": m}) + "\n" for i, m in enumerate(messages))
+    run = ScriptedRun(outputs={"show": service_show("onedrive-x.service") + "InvocationID=abc\n",
+                               "journalctl": journal})
+    return run, proc
+
+
+def test_service_card_shows_a_determinate_bar_at_30_of_120(load, home, tmp_path):
+    lines = [f"Downloading file: Ferie/IMG_{i:04}.JPG ... done" for i in range(30)]
+    run, proc = resync_qml(home, tmp_path, "Number of items to download from Microsoft OneDrive: 120", *lines)
+    engine, controller, warnings = load(home, run=run, proc_root=proc)
+    root = engine.rootObjects()[0]
+
+    read_status(controller)
+
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resynkroniserer"
+    assert [d.property("tone") for d in visible_items(root, "sidebarStatusDot")] == ["warning"]
+    bar = root.findChild(QObject, "serviceProgressBar")
+    assert bar.property("visible") is True
+    assert bar.property("indeterminate") is False
+    assert bar.property("value") == pytest.approx(0.25)
+    assert root.findChild(QObject, "serviceProgressCounter").property("text") == "30 af 120 filer"
+    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Downloader filer"
+    assert warnings == []
+
+
+def test_service_card_shows_an_indeterminate_bar_without_a_total(load, home, tmp_path):
+    run, proc = resync_qml(home, tmp_path,
+                           "Fetching items from the OneDrive API for Drive ID: 0a1b2c3d4e5f6789 ....")
+    engine, controller, warnings = load(home, run=run, proc_root=proc)
+    root = engine.rootObjects()[0]
+
+    read_status(controller)
+
+    bar = root.findChild(QObject, "serviceProgressBar")
+    assert bar.property("visible") is True
+    assert bar.property("indeterminate") is True
+    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Henter listen fra OneDrive"
+    assert warnings == []
+
+
+def test_service_card_shows_that_the_resync_is_finished(load, home, tmp_path):
+    run, proc = resync_qml(home, tmp_path, "Number of items to download from Microsoft OneDrive: 1",
+                           "Downloading file: Ferie/IMG_0000.JPG ... done",
+                           "Sync with Microsoft OneDrive is complete")
+    engine, controller, warnings = load(home, run=run, proc_root=proc)
+    root = engine.rootObjects()[0]
+
+    read_status(controller)
+
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Kører"
+    assert root.findChild(QObject, "serviceProgressBar").property("visible") is False
+    assert root.findChild(QObject, "serviceProgressResult").property("text") == "Resync er færdig"
+    assert warnings == []

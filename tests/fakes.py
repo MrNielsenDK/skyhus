@@ -158,3 +158,65 @@ class ScriptedRun:
             if word in args:
                 stdout = text
         return self._cp(args, 1 if failed else 0, stdout=stdout, stderr=self.stderr if failed else "")
+
+
+class FakeUploadProcess:
+    """Svarer til ``onedrive --upload-only`` startet med ``Popen(stdout=PIPE, text=True)``.
+
+    ``lines`` er klientens stdout. ``returncode`` er exit-koden, når stdout er læst.
+    ``on_line`` kaldes før hver linje, så testen kan se tilstanden undervejs.
+    """
+
+    def __init__(self, args, lines, returncode, on_line=None, **kwargs):
+        self.args = list(args)
+        self.kwargs = kwargs
+        self.pid = 4711
+        self._lines = list(lines)
+        self._final = returncode
+        self._on_line = on_line
+        self.returncode = None
+        self.terminated = False
+        self.stdout = self._read()
+
+    def _read(self):
+        for line in self._lines:
+            if self._on_line is not None:
+                self._on_line(line)
+            yield line + "\n"
+        self.returncode = self._final
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        for _ in self.stdout:
+            pass
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.terminated = True
+
+
+class FakeUploadPopen:
+    """Erstatning for ``sideeffects.popen`` til uploaden i ``apply.execute``.
+
+    Kaldene står i ``calls`` og i ``log``, så testen kan se rækkefølgen sammen med ``ScriptedRun``.
+    """
+
+    def __init__(self, lines=(), returncode=0, log=None, on_line=None):
+        self.lines = list(lines)
+        self.returncode = returncode
+        self.calls = []
+        self.kwargs = []
+        self.log = log if log is not None else []
+        self.on_line = on_line
+
+    def __call__(self, args, **kwargs):
+        args = list(args)
+        self.calls.append(args)
+        self.kwargs.append(kwargs)
+        self.log.append(("popen", args))
+        return FakeUploadProcess(args, self.lines, self.returncode, self.on_line, **kwargs)

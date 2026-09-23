@@ -12,7 +12,8 @@ Applikationen kan:
 - tilføje en ny konto med login i et indbygget browservindue,
 - logge en eksisterende konto ind igen med `--reauth`,
 - vælge, hvilke mapper på OneDrive hver konto synkroniserer,
-- vise tilstanden for hver kontos service og starte eller genstarte den.
+- vise tilstanden for hver kontos service og starte eller genstarte den,
+- vise fremdriften under upload, papirkurv og `--resync`.
 
 ## Tilføj en konto
 
@@ -53,6 +54,10 @@ Når du gemmer et nyt mappevalg for en konto, der har synkroniseret før, gør a
 4. Den flytter de fjernede mapper til papirkurven.
 5. Den genstarter servicen 1 gang med `--resync`. Det kan tage lang tid for en stor konto.
 
+Arket "Ændrer mappevalg" viser de 5 trin. Hvert trin står som "Venter", "I gang", "Færdigt" eller "Fejlet".
+Under uploaden viser arket antallet af uploadede filer og den seneste fil. Under papirkurven viser det antallet af flyttede stier.
+Arket lukker, når servicen er startet med `--resync`. Fejler et trin, bliver arket stående, til du klikker "Luk".
+
 ## Kortet "Service"
 
 Kortet "Service" på hver konto viser servicens tilstand og tidspunktet for den. Applikationen læser tilstanden hvert 3. sekund, mens vinduet er synligt.
@@ -66,9 +71,16 @@ Prikken ved kontoen i sidebjælken har den samme farve som tilstanden.
 | Stoppet | "Start" starter klienten. |
 | Fejlet | "Start" nulstiller fejlen og starter klienten. Kortet viser den sidste fejl fra loggen. |
 | Kræver resync | "Genstart med resync" genstarter servicen 1 gang med `--resync --resync-auth`. Du skal bekræfte det først. |
+| Resynkroniserer | Ingen knap. Kortet viser fasen, en bjælke, den seneste fil og tiden siden start. |
 | Kører uden for servicen | Ingen knap. En anden `onedrive`-proces bruger kontoen. |
 | Ikke logget ind | Ingen knap |
 | Ingen service | Ingen knap |
+
+Under "Resynkroniserer" læser applikationen servicens journal hvert 2. sekund, mens vinduet er synligt.
+Tilstanden gælder, når servicens hovedproces har `--resync`, og klienten endnu ikke har skrevet, at synkroniseringen er færdig.
+Bjælken viser antallet af filer, når klienten har skrevet det samlede antal. Ellers glider bjælken frem og tilbage.
+Når klienten er færdig, viser kortet "Resync er færdig" eller "Resync er færdig med fejl" og antallet af fejlede elementer.
+Lukker du applikationen og åbner den igen, læser den hele journalen for servicens kørsel og viser den samme fremdrift.
 
 Efter et klik venter applikationen i op til 120 sekunder på, at servicen kører eller fejler.
 Falder servicen ikke til ro, viser kortet "Servicen svarer ikke.".

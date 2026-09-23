@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import (
@@ -29,11 +31,12 @@ from .graph import Folder, GraphClient, GraphError
 from .login_flow import FlowState, LoginFlow
 from .naming import NamingError, plan_new_account, suggest_sync_dir, validate_display_name
 from .process import PROC_ROOT
+from .progress import COMPLETE_WITH_FAILURES, SyncProgress, count_text, format_duration
 from .provision import provision_account, validate_sync_dir
 from .registry import Registry
 from .removal import format_size, is_skipped, total_size
 from .service import SystemctlError
-from .service_state import UNKNOWN, AccountStatus, ServiceState, StatusReader, initial_status
+from .service_state import RESYNCING, UNKNOWN, AccountStatus, ServiceState, StatusReader, initial_status
 from .synclist import Selection, SelectionError, read_sync_list
 from .theme import avatar_color, avatar_text_color, initials
 
@@ -47,6 +50,69 @@ STATUS_POLL_INTERVAL_MS = 100
 CLOSE_POLL_INTERVAL_MS = 100
 ACTION_TEXTS = {"start": "Starter {}", "restart": "Genstarter {}", "resync": "Genstarter {} med --resync"}
 """Teksten i arket "Applikationen lukker, når arbejdet er færdigt" for hver servicehandling."""
+PROGRESS_INTERVAL_MS = 2000
+"""Så ofte læser applikationen nye linjer fra journalen under "Resynkroniserer" (feature 0009)."""
+STEP_STATE_TEXTS = {apply_mod.WAITING: "Venter", apply_mod.RUNNING: "I gang",
+                    apply_mod.DONE: "Færdigt", apply_mod.FAILED: "Fejlet"}
+NO_PROGRESS = {"visible": False}
+
+
+def progress_data(status: AccountStatus, now: float) -> dict:
+    """Fremdriften for kortet "Service" som et map til QML (feature 0009)."""
+    progress = status.progress
+    active = status.state.key == RESYNCING
+    if progress is None or not (active or progress.result):
+        return dict(NO_PROGRESS)
+    elapsed = ""
+    if progress.started is not None:
+        end = progress.finished if progress.finished is not None else now
+        elapsed = format_duration(end - progress.started)
+    latest = progress.latest
+    if latest and progress.percent is not None:
+        latest = f"{latest} · {progress.percent} %"
+    if progress.result == COMPLETE_WITH_FAILURES:
+        detail = f"{progress.failed} {'element' if progress.failed == 1 else 'elementer'} fejlede"
+    else:
+        detail = ""
+    if progress.result and elapsed:
+        detail = f"{detail} · varede {elapsed}" if detail else f"Varede {elapsed}"
+    return {
+        "visible": True,
+        "active": active,
+        "phase": progress.phase or "Starter resync",
+        "counter": count_text(progress.done, progress.total) if progress.done or progress.total is not None else "",
+        "determinate": progress.determinate,
+        "value": progress.fraction,
+        "latest": latest,
+        "elapsed": f"Tid siden start: {elapsed}" if elapsed and not progress.result else "",
+        "result": progress.result,
+        "resultText": status.progress_text,
+        "resultDetail": detail,
+    }
+
+
+def step_data(step: int, state: str, progress: SyncProgress | None) -> dict:
+    """1 trin i arket "Ændrer mappevalg" som et map til QML (feature 0009)."""
+    detail = latest = ""
+    determinate, value = False, 0.0
+    if progress is not None and state != apply_mod.WAITING:
+        if step == apply_mod.TRASH:
+            detail = count_text(progress.done, progress.total, "sti", "stier") if progress.total else "Ingen stier"
+        else:
+            detail = count_text(progress.done, progress.total)
+        latest = progress.latest
+        determinate, value = progress.determinate, progress.fraction
+    return {
+        "step": step,
+        "title": apply_mod.STEPS[step],
+        "state": state,
+        "stateText": STEP_STATE_TEXTS[state],
+        "detail": detail,
+        "latest": latest,
+        "showBar": state == apply_mod.RUNNING and step in (apply_mod.UPLOAD, apply_mod.TRASH),
+        "determinate": determinate,
+        "value": value,
+    }
 
 
 class AccountListModel(QAbstractListModel):
@@ -67,10 +133,11 @@ class AccountListModel(QAbstractListModel):
     ServiceBusyRole = Qt.UserRole + 15
     ServiceMessageRole = Qt.UserRole + 16
     ServiceActionRole = Qt.UserRole + 17
+    ServiceProgressRole = Qt.UserRole + 18
 
     SERVICE_ROLES = [ServiceStateRole, ServiceLabelRole, ServiceToneRole, ServiceSinceRole,
                      ServiceActionLabelRole, ServiceErrorRole, ServiceBusyRole, ServiceMessageRole,
-                     ServiceActionRole]
+                     ServiceActionRole, ServiceProgressRole]
 
     countChanged = Signal()
 
@@ -80,6 +147,7 @@ class AccountListModel(QAbstractListModel):
         self._status: dict[str, AccountStatus] = {}
         self._busy: set[str] = set()
         self._messages: dict[str, str] = {}
+        self.now = time.time
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self._accounts)
@@ -103,6 +171,7 @@ class AccountListModel(QAbstractListModel):
             self.ServiceBusyRole: QByteArray(b"serviceBusy"),
             self.ServiceMessageRole: QByteArray(b"serviceMessage"),
             self.ServiceActionRole: QByteArray(b"serviceAction"),
+            self.ServiceProgressRole: QByteArray(b"serviceProgress"),
         }
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
@@ -151,6 +220,8 @@ class AccountListModel(QAbstractListModel):
             return key in self._busy
         if role == self.ServiceMessageRole:
             return self._messages.get(key) or status.message
+        if role == self.ServiceProgressRole:
+            return progress_data(status, self.now())
         return None
 
     def status(self, confdir: str) -> AccountStatus:
@@ -164,6 +235,17 @@ class AccountListModel(QAbstractListModel):
     def set_statuses(self, statuses: dict[str, AccountStatus]) -> None:
         self._status.update(statuses)
         self._service_changed(statuses.keys())
+
+    def set_progress(self, progress: dict[str, SyncProgress]) -> None:
+        """Ny fremdrift for konti under "Resynkroniserer". Tilstanden ændrer sig ikke."""
+        for confdir, value in progress.items():
+            status = self._status.get(confdir)
+            if status is not None:
+                self._status[confdir] = replace(status, progress=value)
+        self._service_changed(progress.keys())
+
+    def resyncing(self) -> list[Account]:
+        return [a for a in self._accounts if self.status(str(a.confdir)).state.key == RESYNCING]
 
     def set_busy(self, confdir: str, busy: bool) -> None:
         if busy:
@@ -383,6 +465,7 @@ class AppController(QObject):
     closeChanged = Signal()
     closeReady = Signal()
     """Vinduet må lukke nu (feature 0008). QML kalder ``close()`` igen."""
+    applyChanged = Signal()
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
@@ -433,6 +516,17 @@ class AppController(QObject):
         self._status_poll_timer = QTimer(self)
         self._status_poll_timer.setInterval(STATUS_POLL_INTERVAL_MS)
         self._status_poll_timer.timeout.connect(self._poll_status)
+        # Fremdrift under "Resynkroniserer" (feature 0009). Timeren kører kun, mens vinduet er synligt.
+        self._progress_job: _Job | None = None
+        self._progress_timer = QTimer(self)
+        self._progress_timer.setInterval(PROGRESS_INTERVAL_MS)
+        self._progress_timer.timeout.connect(self.refreshProgress)
+        # Arket "Ændrer mappevalg" (feature 0009). _Job-tråden skriver trinnene under låsen.
+        self._apply_state = ""
+        self._apply_lock = threading.Lock()
+        self._apply_steps: dict[int, tuple[str, SyncProgress | None]] = {}
+        self._apply_version = 0
+        self._apply_seen = 0
         # Luk under arbejde (feature 0008). Nøglen er tråden eller _Job-objektet.
         self._critical_jobs: dict[object, str] = {}
         self._closing = False
@@ -531,6 +625,22 @@ class AppController(QObject):
 
     resyncAccountName = Property(str, _get_resync_name, notify=resyncChanged)
     """Navnet på kontoen, som venter på bekræftelsen af "Genstart med resync", eller tom."""
+
+    # Arket "Ændrer mappevalg"
+
+    def _get_apply_state(self) -> str:
+        return self._apply_state
+
+    applyState = Property(str, _get_apply_state, notify=applyChanged)
+    """Tom, ``running`` eller ``failed``. Arket er synligt, når værdien ikke er tom."""
+
+    def _get_apply_steps(self) -> list:
+        with self._apply_lock:
+            steps = dict(self._apply_steps)
+        return [step_data(step, *steps[step]) for step in apply_mod.STEPS if step in steps]
+
+    applySteps = Property("QVariantList", _get_apply_steps, notify=applyChanged)
+    """De 5 trin med titel, tilstand, antal og seneste fil."""
 
     # Luk under arbejde
 
@@ -719,9 +829,11 @@ class AppController(QObject):
         """Timeren kører, mens vinduet er synligt, og stopper, når det er minimeret."""
         if visible and not self._status_timer.isActive():
             self._status_timer.start()
+            self._progress_timer.start()
             self.refreshStatus()
         elif not visible:
             self._status_timer.stop()
+            self._progress_timer.stop()
 
     @Slot()
     def refreshStatus(self) -> None:
@@ -731,6 +843,23 @@ class AppController(QObject):
             return
         self._status_job = _Job("status", self._status_reader.read, self._model.accounts())
         self._status_poll_timer.start()
+
+    @Slot()
+    def refreshProgress(self) -> None:
+        """Læs nye linjer fra journalen for konti under "Resynkroniserer" i en tråd."""
+        if self._progress_job is not None:
+            return
+        accounts = self._model.resyncing()
+        if not accounts:
+            return
+        self._progress_job = _Job("progress", self._status_reader.read_progress, accounts)
+        self._status_poll_timer.start()
+
+    @Slot()
+    def closeApplyProgress(self) -> None:
+        """Knappen "Luk" i arket "Ændrer mappevalg", når et trin er fejlet."""
+        if self._apply_state == "failed":
+            self._set_apply_state("")
 
     @Slot(str)
     def serviceAction(self, confdir: str) -> None:
@@ -829,6 +958,16 @@ class AppController(QObject):
             if self._status_again:
                 self._status_again = False
                 self.refreshStatus()
+        progress_job = self._progress_job
+        if progress_job is not None and progress_job.done:
+            self._progress_job = None
+            if progress_job.error is not None:
+                log.error("Uventet fejl, da applikationen læste fremdriften", exc_info=progress_job.error)
+            else:
+                self._model.set_progress(progress_job.result)
+                if any(p.result for p in progress_job.result.values()):
+                    # Resync er færdig. Tilstanden skifter fra "Resynkroniserer" til "Kører".
+                    self.refreshStatus()
         for confdir, action in list(self._action_jobs.items()):
             if not action.done:
                 continue
@@ -838,7 +977,7 @@ class AppController(QObject):
             if action.error is not None:
                 self._model.set_service_message(confdir, self._action_error_text(action.error))
             self.refreshStatus()
-        if self._status_job is None and not self._action_jobs:
+        if self._status_job is None and self._progress_job is None and not self._action_jobs:
             self._status_poll_timer.stop()
 
     @staticmethod
@@ -879,6 +1018,7 @@ class AppController(QObject):
         self._change = None
         self._picker_account = None
         self._picker_for_login = False
+        self._set_apply_state("")
         self._set_picker(state="closed", error="")
 
     def _start_job(self, kind: str, fn, *args, **kwargs) -> None:
@@ -888,16 +1028,40 @@ class AppController(QObject):
     def _execute_change(self) -> None:
         change = self._change
         self._set_picker(state="applying", error="")
+        if change.synced:
+            with self._apply_lock:
+                self._apply_steps = {step: (apply_mod.WAITING, None) for step in apply_mod.STEPS}
+                self._apply_version += 1
+            self._set_apply_state("running")
         self._start_job("execute", apply_mod.execute, change, home=self._home,
-                        run=self._run, trash=self._trash, proc_root=self._proc_root)
+                        run=self._run, popen=self._popen, trash=self._trash, proc_root=self._proc_root,
+                        on_step=self._on_apply_step if change.synced else None)
         if change.synced:
             text = f"Gemmer mappevalget for {change.account.name} og genstarter {change.account.service}"
         else:
             text = f"Gemmer mappevalget for {change.account.name}"
         self._begin_critical(self._jobs[-1], text)
 
+    def _on_apply_step(self, step: int, state: str, progress: SyncProgress | None) -> None:
+        """Kaldes fra _Job-tråden. Sender ikke Qt-signaler. ``_poll_picker`` gør det."""
+        with self._apply_lock:
+            self._apply_steps[step] = (state, progress)
+            self._apply_version += 1
+
+    def _set_apply_state(self, state: str) -> None:
+        if state != self._apply_state:
+            self._apply_state = state
+            self.applyChanged.emit()
+
     def _poll_picker(self) -> None:
-        for job in [j for j in self._jobs if j.done]:
+        # Find de færdige jobs først. Så er deres sidste trin med i versionen herunder.
+        finished = [j for j in self._jobs if j.done]
+        with self._apply_lock:
+            version = self._apply_version
+        if version != self._apply_seen:
+            self._apply_seen = version
+            self.applyChanged.emit()
+        for job in finished:
             self._jobs.remove(job)
             self._end_critical(job)
             self._finish_job(job)
@@ -929,6 +1093,9 @@ class AppController(QObject):
         elif job.kind == "execute":
             if error is not None:
                 self._change = None
+                if self._apply_state == "running":
+                    # Arket bliver stående med det fejlede trin, til brugeren klikker "Luk".
+                    self._set_apply_state("failed")
                 self._set_picker(state="open", error=self._error_text(error))
                 return
             self._finish_change(job.result)
@@ -1075,4 +1242,5 @@ class AppController(QObject):
         self._picker_timer.stop()
         self._status_timer.stop()
         self._status_poll_timer.stop()
+        self._progress_timer.stop()
         self._close_timer.stop()

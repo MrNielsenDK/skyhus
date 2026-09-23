@@ -25,6 +25,7 @@ Item {
     property string serviceActionLabel
     property bool serviceBusy: false
     property string serviceMessage
+    property var serviceProgress: ({})
 
     Flickable {
         id: flick
@@ -124,6 +125,7 @@ Item {
                 actionLabel: page.serviceActionLabel
                 busy: page.serviceBusy
                 message: page.serviceMessage
+                progress: page.serviceProgress
                 onActionClicked: page.controller.serviceAction(page.confdir)
             }
 

@@ -165,9 +165,10 @@ UI.Sheet {
         }
     }
 
+    // Under en ændring af en konto, der har synkroniseret før, viser ApplyProgressSheet trinnene i stedet.
     RowLayout {
         Layout.fillWidth: true
-        visible: sheet.busy
+        visible: sheet.busy && sheet.controller.applyState === ""
         spacing: Theme.spacingS
 
         BusyIndicator {

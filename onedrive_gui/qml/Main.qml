@@ -102,6 +102,7 @@ ApplicationWindow {
                         required property string serviceActionLabel
                         required property bool serviceBusy
                         required property string serviceMessage
+                        required property var serviceProgress
 
                         width: ListView.view.width - ListView.view.leftMargin - ListView.view.rightMargin
                         implicitHeight: Theme.sidebarRowHeight
@@ -188,6 +189,7 @@ ApplicationWindow {
                 serviceActionLabel: accountList.currentItem ? accountList.currentItem.serviceActionLabel : ""
                 serviceBusy: accountList.currentItem ? accountList.currentItem.serviceBusy : false
                 serviceMessage: accountList.currentItem ? accountList.currentItem.serviceMessage : ""
+                serviceProgress: accountList.currentItem ? accountList.currentItem.serviceProgress : ({})
             }
 
             // Den tomme tilstand, når der ingen konti er.
@@ -238,6 +240,10 @@ ApplicationWindow {
     }
 
     FolderPickerSheet {
+        controller: window.controller
+    }
+
+    ApplyProgressSheet {
         controller: window.controller
     }
 
