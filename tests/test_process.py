@@ -1,4 +1,4 @@
-"""Kørende onedrive-processer for en config-mappe (feature 0002)."""
+"""Running onedrive processes for a config folder (feature 0002)."""
 
 from skyhus.process import find_processes
 
@@ -16,7 +16,7 @@ def test_finds_process_with_confdir(home, tmp_path):
     add_process(proc, 100, ["/usr/bin/onedrive", "--monitor", f"--confdir={confdir}"],
                 "0::/user.slice/user-1000.slice/user@1000.service/app.slice/onedrive-privat.service\n")
     add_process(proc, 101, ["onedrive", "--confdir", "~/.config/onedrive-privat", "--resync"])
-    add_process(proc, 102, ["/usr/bin/onedrive", "--confdir=/andet/sted"])
+    add_process(proc, 102, ["/usr/bin/onedrive", "--confdir=/other/place"])
     add_process(proc, 103, ["/usr/bin/vim", f"--confdir={confdir}"])
 
     found = find_processes(confdir, home=home, proc_root=proc)

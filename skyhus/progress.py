@@ -1,21 +1,21 @@
-"""Fremdrift fra klientens linjer (feature 0009).
+"""Progress from the lines of the client (feature 0009).
 
-``SyncProgress.feed(line)`` opdaterer fremdriften ud fra 1 linje, som
-``onedrive`` skriver på stdout eller i journalen. Klienten skriver linjerne
-uden ``--verbose``. Reglerne:
+``SyncProgress.feed(line)`` updates the progress from 1 line that ``onedrive``
+writes on stdout or in the journal. The client writes the lines without
+``--verbose``. The rules:
 
-- En linje, der begynder med en tekst i ``PHASES``, skifter fasen. Nogle af
-  linjerne giver også det samlede antal filer. Antallet af færdige filer
-  starter forfra ved hver ny fase.
-- Når fasen er "Afslutter", skifter den ikke igen. Klienten henter listen fra
-  OneDrive en sidste gang i den fase.
-- ``Downloading file: … done``, ``Uploading new file: … done`` og
-  ``Uploading modified file: … done`` tæller 1 fil.
-- ``Downloading: <sti> ... 45%`` sætter den seneste fil og procenten.
-- ``Sync with Microsoft OneDrive is complete`` og ``Sync with Microsoft
-  OneDrive has completed, however …`` giver resultatet. Derefter ændrer
-  ingen linje fremdriften.
-- Alle andre linjer ændrer intet.
+- A line that starts with a text in ``PHASES`` changes the phase. Some of the
+  lines also give the total number of files. The number of done files starts
+  again at each new phase.
+- When the phase is "Finishing", it does not change again. The client gets the
+  list from OneDrive one last time in that phase.
+- ``Downloading file: … done``, ``Uploading new file: … done`` and
+  ``Uploading modified file: … done`` count 1 file.
+- ``Downloading: <path> ... 45%`` sets the latest file and the percent.
+- ``Sync with Microsoft OneDrive is complete`` and ``Sync with Microsoft
+  OneDrive has completed, however …`` give the result. After that, no line
+  changes the progress.
+- All other lines change nothing.
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 
-CHECKING_DATABASE = "Kontrollerer den lokale database"
-FETCHING = "Henter listen fra OneDrive"
-PROCESSING = "Behandler elementer fra OneDrive"
-DOWNLOADING = "Downloader filer"
-SCANNING = "Scanner lokale filer"
-UPLOADING = "Uploader filer"
-FINISHING = "Afslutter"
+CHECKING_DATABASE = "Checking the local database"
+FETCHING = "Getting the list from OneDrive"
+PROCESSING = "Processing items from OneDrive"
+DOWNLOADING = "Downloading files"
+SCANNING = "Scanning local files"
+UPLOADING = "Uploading files"
+FINISHING = "Finishing"
 
-# (mønster, fase). En gruppe i mønsteret er det samlede antal filer i fasen.
+# (pattern, phase). A group in the pattern is the total number of files in the phase.
 PHASES = (
     (re.compile(r"Performing a database consistency and integrity check"), CHECKING_DATABASE),
     (re.compile(r"Fetching items from the OneDrive API"), FETCHING),
@@ -54,7 +54,7 @@ COMPLETE_WITH_FAILURES = "complete_with_failures"
 
 
 def _path(value: str) -> str:
-    """Klienten skriver ``./`` foran nye filer ved upload. Brugerfladen viser stien uden."""
+    """The client writes ``./`` in front of new files on upload. The user interface shows the path without it."""
     return value[2:] if value.startswith("./") else value
 
 
@@ -62,20 +62,20 @@ def _path(value: str) -> str:
 class SyncProgress:
     phase: str = ""
     done: int = 0
-    """Antallet af færdige filer i fasen."""
+    """The number of done files in the phase."""
     total: int | None = None
-    """Det samlede antal filer i fasen. ``None``, når klienten ikke har skrevet det."""
+    """The total number of files in the phase. ``None`` when the client has not written it."""
     latest: str = ""
     percent: int | None = None
-    """Procenten for den seneste fil, hvis klienten har skrevet den."""
+    """The percent for the latest file, if the client has written it."""
     started: float | None = None
-    """Tidspunktet for den første linje, som sekunder siden 1970."""
+    """The time of the first line, as seconds since 1970."""
     finished: float | None = None
-    """Tidspunktet for linjen med resultatet."""
+    """The time of the line with the result."""
     result: str = ""
-    """Tom, ``COMPLETE`` eller ``COMPLETE_WITH_FAILURES``."""
+    """Empty, ``COMPLETE`` or ``COMPLETE_WITH_FAILURES``."""
     failed: int = 0
-    """Antallet fra ``Failed items to download to/from Microsoft OneDrive: <N>``."""
+    """The number from ``Failed items to download to/from Microsoft OneDrive: <N>``."""
 
     @property
     def determinate(self) -> bool:
@@ -83,17 +83,17 @@ class SyncProgress:
 
     @property
     def fraction(self) -> float:
-        """Andelen af færdige filer fra 0 til 1. 0, når det samlede antal ikke er kendt."""
+        """The fraction of done files from 0 to 1. 0 when the total is not known."""
         if not self.total:
             return 0.0
         return min(1.0, self.done / self.total)
 
     def snapshot(self) -> "SyncProgress":
-        """En kopi, som en anden tråd kan læse, mens denne ændrer sig."""
+        """A copy that another thread can read while this one changes."""
         return replace(self)
 
     def feed(self, line: str, when: float | None = None) -> bool:
-        """Opdatér fremdriften ud fra 1 linje. Svar sandt, hvis noget ændrede sig."""
+        """Update the progress from 1 line. Return true if something changed."""
         if self.result:
             return False
         if when is not None and self.started is None:
@@ -141,19 +141,19 @@ class SyncProgress:
         return True
 
 
-def count_text(done: int, total: int | None, singular: str = "fil", plural: str = "filer") -> str:
-    """"30 af 120 filer", "1 af 1 fil" eller "15 filer"."""
+def count_text(done: int, total: int | None, singular: str = "file", plural: str = "files") -> str:
+    """"30 of 120 files", "1 of 1 file" or "15 files"."""
     if total is None:
         return f"{done} {singular if done == 1 else plural}"
-    return f"{done} af {total} {singular if total == 1 else plural}"
+    return f"{done} of {total} {singular if total == 1 else plural}"
 
 
 def format_duration(seconds: float) -> str:
-    """"under 1 min", "12 min" eller "3 t 2 min"."""
+    """"less than 1 min", "12 min" or "3 h 2 min"."""
     minutes = int(max(0, seconds)) // 60
     if minutes < 1:
-        return "under 1 min"
+        return "less than 1 min"
     hours, minutes = divmod(minutes, 60)
     if hours:
-        return f"{hours} t {minutes} min"
+        return f"{hours} h {minutes} min"
     return f"{minutes} min"

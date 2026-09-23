@@ -1,6 +1,6 @@
-"""Systemd-user-service for en konto.
+"""Systemd user service for an account.
 
-Unit-filen følger formen på ``onedrive-privat.service``.
+The unit file follows the form of ``onedrive-privat.service``.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 SYSTEMCTL_TIMEOUT_SECONDS = 120
 
 UNIT_TEMPLATE = """\
-# OneDrive-konto "{comment}". Oprettet af Skyhus.
+# OneDrive account "{comment}". Created by Skyhus.
 [Unit]
 Description=OneDrive Client for Linux ({description})
 Documentation=https://github.com/abraunegg/onedrive
@@ -38,7 +38,7 @@ ExecStartPre=/bin/sh -c 'sleep 15'
 ExecStart={onedrive} --monitor --confdir="%h/.config/{confdir_name}"
 Restart=on-failure
 RestartSec=3
-# Genstart ikke hvis der kræves --resync (exit code 126)
+# Do not restart if --resync is required (exit code 126)
 RestartPreventExitStatus=126
 TimeoutStopSec=90
 
@@ -52,7 +52,7 @@ class ServiceExistsError(FileExistsError):
 
 
 class SystemctlError(RuntimeError):
-    """``systemctl`` fejlede. Beskeden er ``systemctl``'s egen fejltekst."""
+    """``systemctl`` failed. The message is the error text from ``systemctl``."""
 
 
 def unit_name_for(confdir: Path) -> str:
@@ -70,9 +70,9 @@ def render_unit(confdir_name: str, display_name: str) -> str:
 
 
 def write_unit(confdir: Path, display_name: str, home: Path | None = None) -> str:
-    """Skriv unit-filen for kontoen og returnér dens navn.
+    """Write the unit file for the account and return its name.
 
-    En eksisterende fil med samme navn bliver ikke overskrevet.
+    An existing file with the same name is not overwritten.
     """
     name = unit_name_for(confdir)
     path = unit_dir(home) / name
@@ -83,25 +83,25 @@ def write_unit(confdir: Path, display_name: str, home: Path | None = None) -> st
         with open(path, "x", encoding="utf-8") as f:
             f.write(render_unit(Path(confdir).name, display_name))
     except FileExistsError:
-        raise ServiceExistsError(f"Servicen {name} findes allerede. Applikationen overskriver den ikke.") from None
-    log.info("Skrev %s", path)
+        raise ServiceExistsError(f"The service {name} already exists. Skyhus does not overwrite it.") from None
+    log.info("Wrote %s", path)
     return name
 
 
 def systemctl(*args: str, run: Callable[..., subprocess.CompletedProcess] | None = None) -> str:
-    """Kør ``systemctl --user`` og returnér dens stdout."""
+    """Run ``systemctl --user`` and return its stdout."""
     run = run or sideeffects.run
     cmd = ["systemctl", "--user", *args]
-    log.info("Kører %s", " ".join(cmd))
+    log.info("Running %s", " ".join(cmd))
     try:
         result = run(cmd, capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        raise SystemctlError(f"{' '.join(cmd)} svarede ikke inden {SYSTEMCTL_TIMEOUT_SECONDS} sekunder.") from None
+        raise SystemctlError(f"{' '.join(cmd)} did not respond within {SYSTEMCTL_TIMEOUT_SECONDS} seconds.") from None
     except OSError as exc:
-        raise SystemctlError(f"Kan ikke køre systemctl: {exc}") from None
+        raise SystemctlError(f"Cannot run systemctl: {exc}") from None
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "").strip()
-        raise SystemctlError(message or f"{' '.join(cmd)} fejlede med exit-kode {result.returncode}.")
+        raise SystemctlError(message or f"{' '.join(cmd)} failed with exit code {result.returncode}.")
     return result.stdout or ""
 
 

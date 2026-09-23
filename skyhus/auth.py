@@ -1,17 +1,17 @@
-"""Login med ``onedrive --auth-files``.
+"""Sign-in with ``onedrive --auth-files``.
 
-Klienten skriver login-URL'en i ``auth.url`` og venter på ``response.url``.
-Login-vinduet fanger Microsofts videresendelse til ``nativeclient``, og
-applikationen skriver den i ``response.url``. Klienten gemmer derefter
-``refresh_token`` i kontoens config-mappe.
+The client writes the sign-in URL to ``auth.url`` and waits for ``response.url``.
+The sign-in window catches the Microsoft redirect to ``nativeclient``, and
+the application writes it to ``response.url``. The client then saves
+``refresh_token`` in the config folder of the account.
 
-Med ``reauth`` får klienten også ``--reauth``. Klienten sletter så den gamle
-``refresh_token`` og beder om et nyt login (feature 0005). Applikationen tager
-først en kopi af ``refresh_token`` i arbejdsmappen. Fejler login, eller
-afbryder brugeren det, lægger applikationen kopien tilbage.
+With ``reauth`` the client also gets ``--reauth``. The client then deletes the old
+``refresh_token`` and asks for a new sign-in (feature 0005). The application first
+makes a copy of ``refresh_token`` in the work folder. If the sign-in fails, or
+the user cancels it, the application puts the copy back.
 
-Klassen starter ikke tråde. Den, der bruger den, kalder ``poll()`` jævnligt,
-fx fra en ``QTimer``.
+The class does not start threads. The caller calls ``poll()`` at intervals,
+for example from a ``QTimer``.
 """
 
 from __future__ import annotations
@@ -36,17 +36,17 @@ log = logging.getLogger(__name__)
 
 NATIVE_CLIENT_URL = "https://login.microsoftonline.com/common/oauth2/nativeclient"
 EXIT_GRACE_SECONDS = 30.0
-"""Så længe må klienten køre videre, efter at ``refresh_token`` findes."""
+"""How long the client can continue to run after ``refresh_token`` exists."""
 STOP_TIMEOUT_SECONDS = 5.0
 
 
 class AuthState(Enum):
     STARTING = "starting"
-    """Klienten kører, men har endnu ikke skrevet ``auth.url``."""
+    """The client runs, but has not written ``auth.url`` yet."""
     WAITING_FOR_USER = "waiting_for_user"
-    """Login-vinduet viser Microsofts login-side."""
+    """The sign-in window shows the Microsoft sign-in page."""
     WAITING_FOR_TOKEN = "waiting_for_token"
-    """``response.url`` er skrevet. Klienten henter ``refresh_token``."""
+    """``response.url`` is written. The client gets ``refresh_token``."""
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -64,7 +64,7 @@ class Redirect:
 
 
 def parse_redirect(url: str) -> Redirect | None:
-    """Tolk en URL fra login-vinduet. Er det ikke ``nativeclient``, gives ``None``."""
+    """Parse a URL from the sign-in window. If it is not ``nativeclient``, return ``None``."""
     parts = urlsplit(url)
     base = f"{parts.scheme.lower()}://{parts.netloc.lower()}{parts.path}"
     if base != NATIVE_CLIENT_URL:
@@ -120,17 +120,17 @@ class AuthSession:
             try:
                 self._backup_token()
             except OSError as exc:
-                self._fail(f"Kan ikke tage en kopi af refresh_token: {exc}")
+                self._fail(f"Cannot make a copy of refresh_token: {exc}")
                 return
             args.append("--reauth")
         args += ["--auth-files", f"{self._auth_path}:{self._response_path}"]
         popen = self._popen or sideeffects.popen
-        log.info("Starter %s", " ".join(args))
+        log.info("Starting %s", " ".join(args))
         try:
             self._process = popen(args, stdin=subprocess.DEVNULL, stdout=self._log_file or subprocess.DEVNULL,
                                   stderr=subprocess.STDOUT, start_new_session=True)
         except OSError as exc:
-            self._fail(f"Kan ikke starte {self.onedrive}: {exc}")
+            self._fail(f"Cannot start {self.onedrive}: {exc}")
 
     def poll(self) -> AuthState:
         if self.state in FINISHED:
@@ -141,7 +141,7 @@ class AuthSession:
             if self._token_seen_at is None:
                 self._token_seen_at = self._clock()
             if code is None and self._clock() - self._token_seen_at >= self._exit_grace:
-                log.info("onedrive afsluttede ikke selv efter login. Stopper processen.")
+                log.info("onedrive did not exit after sign-in. Stopping the process.")
                 self._stop_process()
                 code = self._process.poll()
             if code is not None:
@@ -152,12 +152,12 @@ class AuthSession:
         if code is not None:
             tail = self._log_tail()
             if code != 0:
-                message = f"onedrive stoppede med exit-kode {code}."
+                message = f"onedrive stopped with exit code {code}."
             elif self._initial_token and not self.auth_url:
-                message = ("onedrive bad ikke om et nyt login. "
-                           "Kontoen har allerede en refresh_token.")
+                message = ("onedrive did not ask for a new sign-in. "
+                           "The account already has a refresh_token.")
             else:
-                message = "onedrive stoppede, uden at kontoen blev logget ind."
+                message = "onedrive stopped, but the account is not signed in."
             self._fail(f"{message} {tail}".strip())
             return self.state
 
@@ -169,10 +169,10 @@ class AuthSession:
         return self.state
 
     def submit_redirect(self, url: str) -> bool:
-        """Giv klienten URL'en fra login-vinduet.
+        """Give the client the URL from the sign-in window.
 
-        Returnerer ``True``, når URL'en er ``nativeclient`` og derfor afslutter
-        login-siden. Andre URL'er ændrer intet.
+        Returns ``True`` when the URL is ``nativeclient`` and so ends
+        the sign-in page. Other URLs change nothing.
         """
         if self.state is not AuthState.WAITING_FOR_USER:
             return False
@@ -180,9 +180,9 @@ class AuthSession:
         if redirect is None:
             return False
         if redirect.error or not redirect.code:
-            reason = redirect.error_description or redirect.error or "svaret indeholdt ingen kode"
+            reason = redirect.error_description or redirect.error or "the response contained no code"
             self._stop_process()
-            self._fail(f"Microsoft afviste login: {reason}")
+            self._fail(f"Microsoft refused the sign-in: {reason}")
             return True
         if sideeffects.guard_write(self._response_path):
             tmp = self._response_path.with_name("response.url.tmp")
@@ -199,12 +199,12 @@ class AuthSession:
         self._finish()
 
     def close(self) -> None:
-        """Stop processen, hvis den kører, og fjern de midlertidige filer."""
+        """Stop the process if it runs, and remove the temporary files."""
         if self.state not in FINISHED and self._process is not None:
             self.cancel()
         self._finish()
 
-    # Hjælpefunktioner
+    # Helper functions
 
     def _read_token(self) -> bytes | None:
         try:
@@ -213,7 +213,7 @@ class AuthSession:
             return None
 
     def _backup_token(self) -> None:
-        """Kopiér ``refresh_token`` til arbejdsmappen med de samme filrettigheder."""
+        """Copy ``refresh_token`` to the work folder with the same file permissions."""
         if self._initial_token is None:
             return
         backup = self._workdir / "refresh_token"
@@ -222,7 +222,7 @@ class AuthSession:
             self._backup = backup
 
     def _restore_token(self) -> None:
-        """Læg kopien af ``refresh_token`` tilbage i config-mappen."""
+        """Put the copy of ``refresh_token`` back in the config folder."""
         backup = self._backup
         self._backup = None
         if backup is None or not sideeffects.guard_write(self.token_path):
@@ -231,7 +231,7 @@ class AuthSession:
         try:
             data = backup.read_bytes()
             mode = backup.stat().st_mode & 0o777
-            # Filen får aldrig bredere rettigheder end 0600, heller ikke et øjeblik.
+            # The file never gets wider permissions than 0600, not even for a moment.
             fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "wb") as f:
                 os.fchmod(f.fileno(), 0o600)
@@ -240,10 +240,10 @@ class AuthSession:
                 os.fsync(f.fileno())
             os.chmod(tmp, mode)
             os.replace(tmp, self.token_path)
-            log.info("Lagde den oprindelige refresh_token tilbage i %s", self.confdir)
+            log.info("Put the original refresh_token back in %s", self.confdir)
         except OSError as exc:
-            log.error("Kan ikke lægge refresh_token tilbage i %s: %s", self.confdir, exc)
-            self.error = (f"{self.error} Den oprindelige refresh_token kunne ikke lægges tilbage: {exc}"
+            log.error("Cannot put refresh_token back in %s: %s", self.confdir, exc)
+            self.error = (f"{self.error} Could not put the original refresh_token back: {exc}"
                           ).strip()
 
     def _token_ready(self) -> bool:
@@ -281,7 +281,7 @@ class AuthSession:
             process.wait()
 
     def _fail(self, message: str) -> None:
-        log.warning("Login fejlede for %s: %s", self.confdir, message)
+        log.warning("Sign-in failed for %s: %s", self.confdir, message)
         self.error = message
         self.state = AuthState.FAILED
         self._finish()

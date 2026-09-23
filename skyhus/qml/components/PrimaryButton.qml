@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import Skyhus
 
-// Den primære knap: udfyldt med accent og tekst i onAccent.
+// The primary button: filled with accent and text in onAccent.
 T.Button {
     id: control
 

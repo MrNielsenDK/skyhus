@@ -1,4 +1,4 @@
-"""Login via --auth-files (feature 0001)."""
+"""Sign-in with --auth-files (feature 0001)."""
 
 import logging
 import signal
@@ -89,11 +89,11 @@ def test_error_url_fails_with_message(session, popen, signals):
 
     handled = session.submit_redirect(
         "https://login.microsoftonline.com/common/oauth2/nativeclient"
-        "?error=access_denied&error_description=Brugeren+afbrød+login")
+        "?error=access_denied&error_description=The+user+cancelled+the+sign-in")
 
     assert handled is True
     assert session.poll() is AuthState.FAILED
-    assert "Brugeren afbrød login" in session.error
+    assert "The user cancelled the sign-in" in session.error
     assert not popen.last.response_path.exists()
     assert signals.signals == [signal.SIGTERM]
 
@@ -132,7 +132,7 @@ def test_refresh_token_and_exit_succeeds(session, popen, home, signals):
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
     session.submit_redirect(CODE_URL)
-    (home / ".config" / "onedrive-firma-2" / "refresh_token").write_text("ny")
+    (home / ".config" / "onedrive-firma-2" / "refresh_token").write_text("new")
 
     assert session.poll() is AuthState.WAITING_FOR_TOKEN
     popen.last.exit(0)
@@ -145,7 +145,7 @@ def test_process_is_stopped_30_seconds_after_refresh_token(session, popen, home,
     popen.last.write_auth_url(AUTH_URL)
     session.poll()
     session.submit_redirect(CODE_URL)
-    (home / ".config" / "onedrive-firma-2" / "refresh_token").write_text("ny")
+    (home / ".config" / "onedrive-firma-2" / "refresh_token").write_text("new")
     session.poll()
 
     clock.now += 29.9
@@ -190,13 +190,13 @@ def test_parse_redirect():
     assert err.error == "access_denied"
 
 
-# Log ind igen med --reauth (feature 0005)
+# Sign in again with --reauth (feature 0005)
 
 @pytest.fixture
 def reauth_confdir(home):
     confdir = make_account_dir(home, "onedrive-privat", config="")
     token = confdir / "refresh_token"
-    token.write_bytes(b"gammel-token\x00\xff")
+    token.write_bytes(b"old-token\x00\xff")
     token.chmod(0o600)
     return confdir
 
@@ -234,7 +234,7 @@ def test_reauth_cancel_restores_token_byte_for_byte(reauth_confdir, tmp_path, po
     s.cancel()
 
     assert s.poll() is AuthState.CANCELLED
-    assert token.read_bytes() == b"gammel-token\x00\xff"
+    assert token.read_bytes() == b"old-token\x00\xff"
     assert token.stat().st_mode & 0o777 == 0o600
     s.close()
 
@@ -245,7 +245,7 @@ def test_reauth_nonzero_exit_restores_token(reauth_confdir, tmp_path, popen, clo
     popen.last.exit(1)
 
     assert s.poll() is AuthState.FAILED
-    assert token.read_bytes() == b"gammel-token\x00\xff"
+    assert token.read_bytes() == b"old-token\x00\xff"
     assert token.stat().st_mode & 0o777 == 0o600
     s.close()
 
@@ -256,18 +256,18 @@ def test_reauth_success_keeps_new_token(reauth_confdir, tmp_path, popen, clock):
     popen.last.write_auth_url(AUTH_URL)
     s.poll()
     s.submit_redirect(CODE_URL)
-    token.write_text("ny")
+    token.write_text("new")
     popen.last.exit(0)
 
     assert s.poll() is AuthState.SUCCEEDED
     s.close()
-    assert token.read_text() == "ny"
+    assert token.read_text() == "new"
 
 
 def test_reauth_backup_is_removed_with_workdir(reauth_confdir, tmp_path, popen, clock):
     s = start_reauth(reauth_confdir, tmp_path, popen, clock)
     workdir = popen.last.response_path.parent
-    assert (workdir / "refresh_token").read_bytes() == b"gammel-token\x00\xff"
+    assert (workdir / "refresh_token").read_bytes() == b"old-token\x00\xff"
 
     s.cancel()
     s.close()
@@ -275,10 +275,10 @@ def test_reauth_backup_is_removed_with_workdir(reauth_confdir, tmp_path, popen, 
     assert not workdir.exists()
 
 
-# Signaler via sideeffects (feature 0011)
+# Signals through sideeffects (feature 0011)
 
 class StubbornProcess:
-    """En proces, der ignorerer SIGTERM og først stopper ved SIGKILL."""
+    """A process that ignores SIGTERM and stops only on SIGKILL."""
 
     def __init__(self):
         self.returncode = None
@@ -323,7 +323,7 @@ def test_stopped_process_gets_no_signal(session, popen, signals):
 
 
 def test_cancel_in_safe_mode_sends_no_signal(home, tmp_path, clock, popen, caplog):
-    """Uden en injiceret ``send_signal`` bruger sessionen ``sideeffects.signal_process``."""
+    """Without an injected ``send_signal`` the session uses ``sideeffects.signal_process``."""
     confdir = make_account_dir(home, "onedrive-firma-2", config="")
     session = AuthSession(confdir, popen=popen, clock=clock, tmp_base=tmp_path)
     session.start()
@@ -333,5 +333,5 @@ def test_cancel_in_safe_mode_sends_no_signal(home, tmp_path, clock, popen, caplo
 
     assert not popen.last.terminated
     assert not popen.last.killed
-    assert "SAFE MODE: sender ikke SIGTERM" in caplog.text
+    assert "SAFE MODE: not sending SIGTERM" in caplog.text
     assert session.poll() is AuthState.CANCELLED

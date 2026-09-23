@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import Skyhus
 
-// Et ark, der glider ned fra toppen af vinduet. Resten af vinduet bliver dæmpet.
+// A sheet that slides down from the top of the window. The rest of the window is dimmed.
 T.Popup {
     id: sheet
 

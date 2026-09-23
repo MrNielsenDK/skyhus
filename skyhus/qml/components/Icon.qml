@@ -1,7 +1,7 @@
 import QtQuick
 import Skyhus
 
-// Et Lucide-ikon fra assets/icons. Farven følger teksten ved siden af ikonet.
+// A Lucide icon from assets/icons. The color follows the text next to the icon.
 Image {
     id: icon
 

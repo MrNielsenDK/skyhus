@@ -1,7 +1,7 @@
 import QtQuick
 import QtWebEngine
 
-// Viser Microsofts login-side og fanger videresendelsen til nativeclient.
+// Shows the Microsoft sign-in page and catches the redirect to nativeclient.
 Item {
     id: sheet
 
@@ -20,7 +20,7 @@ Item {
         return true
     }
 
-    // En ny profil uden lagring. Så logger en tidligere konto ikke ind automatisk.
+    // A new profile without storage. Then a previous account does not sign in automatically.
     WebEngineProfile {
         id: privateProfile
         offTheRecord: true

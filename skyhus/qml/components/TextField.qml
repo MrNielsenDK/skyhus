@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import Skyhus
 
-// Et tekstfelt med en tynd kant og en fokusring.
+// A text field with a thin border and a focus ring.
 T.TextField {
     id: control
 

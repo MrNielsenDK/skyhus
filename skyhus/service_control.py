@@ -1,16 +1,16 @@
-"""Styr en kontos service: stop, start, genstart og genstart med ``--resync``.
+"""Control the service of an account: stop, start, restart and restart with ``--resync``.
 
-En genstart med ``--resync`` bruger en midlertidig drop-in. Drop-in'en
-kopierer den gældende ``ExecStart`` og tilføjer ``--resync --resync-auth``.
-Applikationen fjerner drop-in'en igen, når servicen er genstartet. Unit-filen
-selv ændrer sig ikke.
+A restart with ``--resync`` uses a temporary drop-in. The drop-in copies the
+current ``ExecStart`` and adds ``--resync --resync-auth``. The application
+removes the drop-in again when the service has restarted. The unit file itself
+does not change.
 
-Knapperne i kortet "Service" (feature 0004) bruger ``perform()``. Den udfører
-handlingen og venter, til servicen er "Kører", "Fejlet" eller "Kræver resync".
+The buttons in the "Service" card (feature 0004) use ``perform()``. It does
+the action and waits until the service is "Running", "Failed" or "Needs resync".
 
-``cancel_resync()`` stopper en service under en resync og skriver markeringen
-for "Resync afbrudt" (feature 0010). ``perform()`` fjerner markeringen, når
-servicen er startet igen.
+``cancel_resync()`` stops a service during a resync and writes the mark for
+"Resync stopped" (feature 0010). ``perform()`` removes the mark when the
+service has started again.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 RESYNC_DROP_IN = "zz-skyhus-resync.conf"
 RESYNC_FLAGS = "--resync --resync-auth"
-# Servicen har TimeoutStopSec=90. En genstart kan derfor tage over 1 minut.
+# The service has TimeoutStopSec=90. A restart can therefore take more than 1 minute.
 SETTLE_TIMEOUT_SECONDS = 120
 SETTLE_POLL_SECONDS = 1
 
@@ -38,7 +38,7 @@ Run = Callable[..., subprocess.CompletedProcess]
 
 
 class ServiceTimeoutError(SystemctlError):
-    """Servicen nåede ikke en fast tilstand inden for tidsgrænsen."""
+    """The service did not reach a settled state within the time limit."""
 
 
 def stop(service: str, run: Run | None = None) -> None:
@@ -50,24 +50,24 @@ def start(service: str, run: Run | None = None) -> None:
 
 
 def cancel_resync(service: str, *, home: Path | None = None, run: Run | None = None) -> None:
-    """Knappen "Afbryd resync": stop servicen, og husk, at resync er afbrudt.
+    """The "Stop resync" button: stop the service, and remember that the resync is stopped.
 
-    Fejler ``systemctl stop``, giver funktionen ``SystemctlError`` og skriver ingen markering.
-    I sikker tilstand når stoppet kun ``systemctl``, når kalderen giver sin egen ``run``.
-    Ellers skriver funktionen heller ingen markering (feature 0011).
+    If ``systemctl stop`` fails, the function raises ``SystemctlError`` and writes no mark.
+    In safe mode the stop only reaches ``systemctl`` when the caller gives its own ``run``.
+    Otherwise the function also writes no mark (feature 0011).
     """
     unit = read_units([service], run=run).get(service)
     invocation = unit.invocation_id if unit is not None else ""
     stop(service, run=run)
     injected = run is not None and run is not sideeffects.run
     if sideeffects.safe_mode() and not injected:
-        log.warning("SAFE MODE: skriver ikke markeringen for %s", service)
+        log.warning("SAFE MODE: not writing the mark for %s", service)
         return
     mark_resync_cancelled(service, invocation, home=home)
 
 
 def reset_and_restart(service: str, run: Run | None = None) -> None:
-    """Knapperne "Start" og "Genstart": nulstil en fejlet tilstand og genstart."""
+    """The "Start" and "Restart" buttons: reset a failed state and restart."""
     systemctl("reset-failed", service, run=run)
     systemctl("restart", service, run=run)
 
@@ -77,9 +77,9 @@ def resync_drop_in_path(service: str, home: Path | None = None) -> Path:
 
 
 def effective_exec_start(cat_output: str) -> str:
-    """Den ``ExecStart``, som gælder efter unit-filen og alle drop-ins.
+    """The ``ExecStart`` that applies after the unit file and all drop-ins.
 
-    En tom ``ExecStart=`` nulstiller listen, som i systemd.
+    An empty ``ExecStart=`` resets the list, as in systemd.
     """
     commands: list[str] = []
     section = ""
@@ -96,21 +96,21 @@ def effective_exec_start(cat_output: str) -> str:
         else:
             commands = []
     if len(commands) != 1:
-        raise SystemctlError(f"Servicen skal have præcis 1 ExecStart. Den har {len(commands)}.")
+        raise SystemctlError(f"The service must have exactly 1 ExecStart. It has {len(commands)}.")
     return commands[0]
 
 
 def restart_with_resync(service: str, *, home: Path | None = None, run: Run | None = None) -> None:
-    """Genstart servicen én gang med ``--resync --resync-auth``."""
+    """Restart the service one time with ``--resync --resync-auth``."""
     exec_start = effective_exec_start(systemctl("cat", service, run=run))
     path = resync_drop_in_path(service, home)
     if sideeffects.guard_write(path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            "# Midlertidig. Skyhus fjerner filen efter genstart.\n"
+            "# Temporary. Skyhus removes this file after the restart.\n"
             "[Service]\nExecStart=\n"
             f"ExecStart={exec_start} {RESYNC_FLAGS}\n", encoding="utf-8")
-        log.info("Skrev %s", path)
+        log.info("Wrote %s", path)
     try:
         systemctl("daemon-reload", run=run)
         systemctl("restart", service, run=run)
@@ -124,7 +124,7 @@ def remove_resync_drop_in(service: str, *, home: Path | None = None, run: Run | 
         return
     try:
         path.unlink()
-        log.info("Fjernede %s", path)
+        log.info("Removed %s", path)
     except FileNotFoundError:
         return
     try:
@@ -137,17 +137,17 @@ def remove_resync_drop_in(service: str, *, home: Path | None = None, run: Run | 
 def wait_until_settled(read_state: Callable[[], str], *, deadline: float,
                        clock: Callable[[], float] = time.monotonic,
                        sleep: Callable[[float], None] = time.sleep) -> str:
-    """Spørg ``read_state``, til tilstanden er i ``SETTLED``, eller tiden er gået."""
+    """Ask ``read_state`` until the state is in ``SETTLED`` or the time is up."""
     while True:
         try:
             state = read_state()
         except SystemctlError as exc:
-            log.warning("Kan ikke læse status under ventetiden: %s", exc)
+            log.warning("Cannot read the status while waiting: %s", exc)
             state = ""
         if state in SETTLED:
             return state
         if clock() >= deadline:
-            raise ServiceTimeoutError("Servicen svarer ikke.")
+            raise ServiceTimeoutError("The service does not respond.")
         sleep(SETTLE_POLL_SECONDS)
 
 
@@ -156,10 +156,10 @@ def perform(action: str, service: str, read_state: Callable[[], str], *,
             clock: Callable[[], float] | None = None,
             sleep: Callable[[float], None] | None = None,
             timeout: float = SETTLE_TIMEOUT_SECONDS) -> str:
-    """Udfør "start", "restart" eller "resync" og returnér den tilstand, servicen endte i.
+    """Do "start", "restart" or "resync" and return the state that the service ended in.
 
-    En fejl fra ``systemctl`` giver ``SystemctlError`` med ``systemctl``'s egen
-    besked. Når servicen ikke falder til ro, giver den ``ServiceTimeoutError``.
+    An error from ``systemctl`` raises ``SystemctlError`` with the message from
+    ``systemctl``. When the service does not settle, it raises ``ServiceTimeoutError``.
     """
     clock = clock or time.monotonic
     sleep = sleep or time.sleep
@@ -170,6 +170,6 @@ def perform(action: str, service: str, read_state: Callable[[], str], *,
     elif action in ("start", "restart"):
         reset_and_restart(service, run=run)
     else:
-        raise ValueError(f"Ukendt handling: {action}")
+        raise ValueError(f"Unknown action: {action}")
     clear_resync_cancelled(service, home=home)
     return wait_until_settled(read_state, deadline=deadline, clock=clock, sleep=sleep)

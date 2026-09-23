@@ -10,7 +10,7 @@ ApplicationWindow {
     id: window
 
     required property var controller
-    // Sikker tilstand (feature 0007). app.py giver værdien ved start.
+    // Safe mode (feature 0007). app.py gives the value at start.
     property bool safeMode: false
 
     readonly property var loginActiveStates: ["starting", "waiting_for_user", "waiting_for_token", "activating",
@@ -34,7 +34,7 @@ ApplicationWindow {
         anchors.fill: parent
         spacing: 0
 
-        // Sidebjælken med alle konti og knappen "Tilføj konto" nederst.
+        // The sidebar with all accounts and the "Add account" button at the bottom.
         Rectangle {
             id: sidebar
             objectName: "sidebar"
@@ -50,7 +50,7 @@ ApplicationWindow {
                 color: Theme.separator
             }
 
-            // Listen går ud til kanten minus fokusringen. Så bliver ringen ikke skåret af.
+            // The list goes to the edge minus the focus ring. Then the ring is not cut off.
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: Theme.spacingM - Theme.focusRing
@@ -61,7 +61,7 @@ ApplicationWindow {
                     Layout.leftMargin: Theme.focusRing
                     leftPadding: Theme.spacingS
                     topPadding: Theme.spacingXS
-                    text: "Konti"
+                    text: "Accounts"
                     font: Theme.caption
                     color: Theme.textSecondary
                 }
@@ -154,14 +154,14 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.margins: Theme.focusRing
                     iconName: "plus"
-                    text: "Tilføj konto"
+                    text: "Add account"
                     enabled: !window.loginActive
                     onClicked: addSheet.open()
                 }
             }
         }
 
-        // Indholdsfeltet med den valgte kontos detaljer.
+        // The content area with the details of the selected account.
         Rectangle {
             id: content
             objectName: "content"
@@ -194,7 +194,7 @@ ApplicationWindow {
                 serviceCancellable: accountList.currentItem ? accountList.currentItem.serviceCancellable : false
             }
 
-            // Den tomme tilstand, når der ingen konti er.
+            // The empty state when there are no accounts.
             ColumnLayout {
                 objectName: "emptyState"
                 anchors.centerIn: parent
@@ -212,7 +212,7 @@ ApplicationWindow {
                     objectName: "emptyLabel"
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
-                    text: "Ingen konti endnu"
+                    text: "No accounts yet"
                     font: Theme.title
                     color: Theme.textPrimary
                 }
@@ -220,7 +220,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.Wrap
-                    text: "Tilføj en OneDrive-konto for at synkronisere dens filer."
+                    text: "Add a OneDrive account to sync its files."
                     font: Theme.body
                     color: Theme.textSecondary
                 }
@@ -228,7 +228,7 @@ ApplicationWindow {
                     objectName: "emptyAddButton"
                     Layout.alignment: Qt.AlignHCenter
                     Layout.topMargin: Theme.spacingS
-                    text: "Tilføj konto"
+                    text: "Add account"
                     enabled: !window.loginActive
                     onClicked: addSheet.open()
                 }
@@ -272,9 +272,9 @@ ApplicationWindow {
         height: parent.height - Theme.spacingXL
         closePolicy: T.Popup.NoAutoClose
         visible: window.loginActive
-        title: "Log ind: " + window.controller.loginAccountName
+        title: "Sign in: " + window.controller.loginAccountName
 
-        // Feature 0005: flowet har stoppet kontoens service under login.
+        // Feature 0005: the flow has stopped the service of the account during sign-in.
         Text {
             objectName: "loginNote"
             Layout.fillWidth: true
@@ -300,7 +300,7 @@ ApplicationWindow {
 
         UI.InlineError {
             text: loginLoader.active && loginLoader.status === Loader.Error
-                  ? "Login-vinduet kræver QtWebEngine. Installér pakken python3-pyside6.qtwebenginequick."
+                  ? "The sign-in window needs QtWebEngine. Install the package python3-pyside6.qtwebenginequick."
                   : ""
         }
 
@@ -327,10 +327,10 @@ ApplicationWindow {
                     color: Theme.textSecondary
                     text: {
                         switch (window.controller.loginState) {
-                        case "starting": return "Starter onedrive …"
-                        case "waiting_for_token": return "Gemmer login …"
-                        case "activating": return "Starter servicen …"
-                        case "cancelling": return "Annullerer …"
+                        case "starting": return "Starting onedrive …"
+                        case "waiting_for_token": return "Saving the sign-in …"
+                        case "activating": return "Starting the service …"
+                        case "cancelling": return "Cancelling …"
                         default: return ""
                         }
                     }
@@ -341,7 +341,7 @@ ApplicationWindow {
         buttons: [
             UI.SecondaryButton {
                 objectName: "cancelLoginButton"
-                text: window.controller.loginState === "cancelling" ? "Annullerer …" : "Annullér"
+                text: window.controller.loginState === "cancelling" ? "Cancelling …" : "Cancel"
                 enabled: window.controller.loginState !== "activating"
                          && window.controller.loginState !== "cancelling"
                 onClicked: window.controller.cancelLogin()
@@ -377,13 +377,13 @@ ApplicationWindow {
             if (window.controller.message !== "")
                 messageDialog.open()
         }
-        // Feature 0008: handlingerne er færdige, eller brugeren klikkede "Luk alligevel".
+        // Feature 0008: the actions are done, or the user clicked "Close anyway".
         function onCloseReady() {
             window.close()
         }
     }
 
-    // Servicestatus opdateres kun, mens vinduet er synligt og ikke minimeret.
+    // The service status updates only while the window is visible and not minimized.
     function updateStatusTimer() {
         window.controller.setWindowVisible(window.visibility !== Window.Minimized
                                            && window.visibility !== Window.Hidden)
@@ -391,8 +391,8 @@ ApplicationWindow {
 
     onVisibilityChanged: updateStatusTimer()
     Component.onCompleted: updateStatusTimer()
-    // Vinduet venter på handlinger, der stopper eller starter en service (feature 0008).
-    // app.py kalder controller.shutdown(), når vinduet er lukket.
+    // The window waits for actions that stop or start a service (feature 0008).
+    // app.py calls controller.shutdown() when the window is closed.
     onClosing: function(close) {
         close.accepted = window.controller.requestClose()
     }

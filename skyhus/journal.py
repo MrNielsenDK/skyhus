@@ -1,18 +1,18 @@
-"""Den seneste fejllinje fra en services journal (feature 0004).
+"""The latest error line from the journal of a service (feature 0004).
 
-Reglen:
+The rule:
 
-1. Tag den nyeste linje fra ``onedrive``, der starter med ``ERROR:``, eller som
-   siger, at klienten kræver ``--resync``. Klienten skriver ikke ``ERROR:``
-   foran den besked, når den stopper med exit-kode 126.
-2. Klienten skriver detaljer i indrykkede linjer lige efter ``ERROR:``-linjen,
-   fx ``Calling Function:``, ``Path:`` og ``Error Message:``. Findes der en
-   ``Error Message:``-linje blandt dem, bruger applikationen den.
-3. Findes ingen fejllinje fra ``onedrive``, så tag den nyeste linje fra
-   ``systemd`` med ``Failed with result``.
+1. Take the newest line from ``onedrive`` that starts with ``ERROR:``, or that
+   says that the client needs ``--resync``. The client does not write ``ERROR:``
+   in front of that message when it stops with exit code 126.
+2. The client writes details in indented lines just after the ``ERROR:`` line,
+   for example ``Calling Function:``, ``Path:`` and ``Error Message:``. If there
+   is an ``Error Message:`` line among them, the application uses it.
+3. If there is no error line from ``onedrive``, take the newest line from
+   ``systemd`` with ``Failed with result``.
 
-``invocation_lines()`` giver linjerne fra servicens nuværende kørsel
-(feature 0009). Med en cursor giver den kun linjerne efter cursoren.
+``invocation_lines()`` gives the lines from the current run of the service
+(feature 0009). With a cursor it gives only the lines after the cursor.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class Entry:
     pid: str
     message: str
     timestamp: float = 0.0
-    """``__REALTIME_TIMESTAMP`` som sekunder siden 1970. 0, hvis feltet mangler."""
+    """``__REALTIME_TIMESTAMP`` as seconds since 1970. 0 if the field is missing."""
 
 
 def journal_command(service: str) -> list[str]:
@@ -61,7 +61,7 @@ def invocation_command(service: str, invocation_id: str, after_cursor: str = "")
 
 
 def _message(value) -> str:
-    # journalctl skriver en besked som en liste af bytes, hvis den ikke er gyldig UTF-8.
+    # journalctl writes a message as a list of bytes if it is not valid UTF-8.
     if isinstance(value, list):
         try:
             return bytes(value).decode("utf-8", "replace")
@@ -96,7 +96,7 @@ def _entry(data: dict) -> Entry:
 
 
 def parse_entries(output: str) -> list[Entry]:
-    """Linjerne fra ``journalctl -o json``, den ældste først."""
+    """The lines from ``journalctl -o json``, the oldest first."""
     return [_entry(data) for data in _records(output)]
 
 
@@ -112,7 +112,7 @@ def _is_client_error(entry: Entry) -> bool:
 
 
 def _error_message_after(entries: list[Entry], index: int) -> str:
-    """``Error Message:`` blandt de indrykkede linjer lige efter ``entries[index]``."""
+    """``Error Message:`` among the indented lines just after ``entries[index]``."""
     error = entries[index]
     for entry in entries[index + 1:]:
         if entry.identifier != error.identifier or entry.pid != error.pid:
@@ -128,7 +128,7 @@ def _error_message_after(entries: list[Entry], index: int) -> str:
 
 
 def latest_error(entries: list[Entry]) -> str:
-    """Den fejllinje, som kortet viser, eller tom."""
+    """The error line that the card shows, or empty."""
     for index in range(len(entries) - 1, -1, -1):
         if _is_client_error(entries[index]):
             return _error_message_after(entries, index) or _one_line(entries[index].message)
@@ -139,36 +139,36 @@ def latest_error(entries: list[Entry]) -> str:
 
 
 def read_latest_error(service: str, run: Run | None = None) -> str:
-    """Kør ``journalctl`` for servicen. En fejl giver en tom fejllinje."""
+    """Run ``journalctl`` for the service. An error gives an empty error line."""
     run = run or sideeffects.run
     cmd = journal_command(service)
     try:
         result = run(cmd, capture_output=True, text=True, timeout=JOURNALCTL_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        log.warning("Kan ikke læse journalen for %s: %s", service, exc)
+        log.warning("Cannot read the journal for %s: %s", service, exc)
         return ""
     if result.returncode != 0:
-        log.warning("journalctl fejlede for %s: %s", service, (result.stderr or "").strip())
+        log.warning("journalctl failed for %s: %s", service, (result.stderr or "").strip())
         return ""
     return latest_error(parse_entries(result.stdout or ""))
 
 
 def invocation_lines(service: str, invocation_id: str, after_cursor: str = "",
                      run: Run | None = None) -> tuple[list[Entry], str]:
-    """Linjerne fra servicens kørsel ``invocation_id`` og den sidste cursor.
+    """The lines from the run ``invocation_id`` of the service, and the last cursor.
 
-    Med ``after_cursor`` giver funktionen kun linjerne efter den. Er der ingen
-    nye linjer, eller fejler ``journalctl``, er cursoren uændret.
+    With ``after_cursor`` the function gives only the lines after it. If there
+    are no new lines, or ``journalctl`` fails, the cursor does not change.
     """
     run = run or sideeffects.run
     cmd = invocation_command(service, invocation_id, after_cursor)
     try:
         result = run(cmd, capture_output=True, text=True, timeout=JOURNALCTL_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        log.warning("Kan ikke læse journalen for %s: %s", service, exc)
+        log.warning("Cannot read the journal for %s: %s", service, exc)
         return [], after_cursor
     if result.returncode != 0:
-        log.warning("journalctl fejlede for %s: %s", service, (result.stderr or "").strip())
+        log.warning("journalctl failed for %s: %s", service, (result.stderr or "").strip())
         return [], after_cursor
     entries, cursor = [], after_cursor
     for data in _records(result.stdout or ""):

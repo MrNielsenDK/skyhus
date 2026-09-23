@@ -4,10 +4,10 @@ import QtQuick.Layouts
 import Skyhus
 import "." as UI
 
-// Kortet "Service": servicens tilstand, siden hvornår, den seneste fejllinje og en knap.
-// Under kortet står en fejlbesked, hvis en handling fejlede, eller hvis status ikke kan læses.
-// Under "Resynkroniserer" og "Resync er færdig" viser kortet fremdriften (feature 0009).
-// Under "Resynkroniserer" har kortet knappen "Afbryd resync" (feature 0010).
+// The "Service" card: the state of the service, since when, the latest error line and a button.
+// Below the card is an error message if an action failed or if the status cannot be read.
+// During "Resyncing" and "Resync complete", the card shows the progress (feature 0009).
+// During "Resyncing", the card has the "Stop resync" button (feature 0010).
 ColumnLayout {
     id: serviceCard
     objectName: "serviceCard"
@@ -20,9 +20,9 @@ ColumnLayout {
     property string actionLabel
     property bool busy: false
     property string message
-    // Fremdriften fra AccountListModel.serviceProgress. Tom eller {"visible": false} uden resync.
+    // The progress from AccountListModel.serviceProgress. Empty or {"visible": false} without resync.
     property var progress: ({})
-    // Knappen "Afbryd resync" er synlig. AccountListModel.serviceCancellable.
+    // The "Stop resync" button is visible. AccountListModel.serviceCancellable.
     property bool cancellable: false
     readonly property bool progressVisible: progress !== undefined && progress !== null && progress.visible === true
     readonly property bool progressActive: progressVisible && progress.active === true
@@ -32,18 +32,18 @@ ColumnLayout {
 
     function actionText(name) {
         switch (name) {
-        case "restart": return "Genstart servicen"
-        case "start": return "Start servicen"
-        case "resync": return "Genstart med resync"
+        case "restart": return "Restart the service"
+        case "start": return "Start the service"
+        case "resync": return "Restart with resync"
         default: return ""
         }
     }
 
     function actionDetail(name) {
         switch (name) {
-        case "restart": return "Stop klienten, og start den igen."
-        case "start": return "Nulstil fejlen, og start klienten."
-        case "resync": return "Klienten sammenligner hele kontoen med OneDrive igen."
+        case "restart": return "Stop the client and start it again."
+        case "start": return "Reset the error and start the client."
+        case "resync": return "The client compares all of the account with OneDrive again."
         default: return ""
         }
     }
@@ -56,8 +56,8 @@ ColumnLayout {
 
         UI.Row {
             first: true
-            text: "Tilstand"
-            detail: serviceCard.since !== "" ? "Siden " + serviceCard.since : ""
+            text: "State"
+            detail: serviceCard.since !== "" ? "Since " + serviceCard.since : ""
 
             UI.StatusDot {
                 tone: serviceCard.tone
@@ -70,7 +70,7 @@ ColumnLayout {
             }
         }
 
-        // Fremdriften for --resync: fase, antal, bjælke, seneste fil og tid. Bagefter resultatet.
+        // The progress of --resync: phase, count, bar, latest file and time. After that, the result.
         Item {
             objectName: "serviceProgressRow"
             Layout.fillWidth: true
@@ -180,7 +180,7 @@ ColumnLayout {
             }
         }
 
-        // Den seneste fejllinje fra journalen. Brugeren kan markere og kopiere den.
+        // The latest error line from the journal. The user can select and copy it.
         Item {
             objectName: "serviceErrorRow"
             Layout.fillWidth: true
@@ -253,8 +253,8 @@ ColumnLayout {
         UI.Row {
             objectName: "serviceCancelResyncRow"
             visible: serviceCard.cancellable
-            text: "Afbryd resync"
-            detail: "Kontoen synkroniserer ikke, før du starter en ny resync."
+            text: "Stop resync"
+            detail: "The account does not sync until you start a new resync."
 
             BusyIndicator {
                 visible: serviceCard.busy
@@ -267,7 +267,7 @@ ColumnLayout {
             UI.SecondaryButton {
                 objectName: "serviceCancelResyncButton"
                 visible: serviceCard.cancellable
-                text: "Afbryd resync"
+                text: "Stop resync"
                 enabled: !serviceCard.busy
                 onClicked: serviceCard.cancelResyncClicked()
             }

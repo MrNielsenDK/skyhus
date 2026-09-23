@@ -1,4 +1,4 @@
-"""Systemd-user-service for en konto (feature 0001)."""
+"""Systemd user service for an account (feature 0001)."""
 
 import pytest
 
@@ -41,12 +41,12 @@ def test_description_escapes_percent_and_newlines(home):
 def test_existing_unit_is_not_overwritten(home):
     path = unit_path(home, "onedrive-firma-2.service")
     path.parent.mkdir(parents=True)
-    path.write_text("min egen unit\n")
+    path.write_text("my own unit\n")
 
     with pytest.raises(ServiceExistsError):
         service.write_unit(home / ".config" / "onedrive-firma-2", "Firma 2", home)
 
-    assert path.read_text() == "min egen unit\n"
+    assert path.read_text() == "my own unit\n"
 
 
 def test_enable_now_runs_daemon_reload_first(recording_run):

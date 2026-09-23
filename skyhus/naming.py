@@ -1,4 +1,4 @@
-"""Visningsnavne og de slugs, der giver config-mappe og service."""
+"""Display names and the slugs that give the config folder and the service."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ from typing import Iterable
 
 from .accounts import CONFDIR_PREFIX, Account, config_home, unit_dir
 
-_DANISH = str.maketrans({"æ": "ae", "ø": "oe", "å": "aa"})
+_DANISH = str.maketrans({"æ": "ae", "ø": "oe", "å": "aa"})  # allow-danish: input that slugify must accept
 
 
 class NamingError(ValueError):
-    """Navnet kan ikke bruges. Beskeden kan vises direkte til brugeren."""
+    """The name cannot be used. The message can go directly to the user."""
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,7 @@ class NewAccount:
 
 
 def slugify(name: str) -> str:
-    """"Firma 2" → ``firma-2``. Æ, ø og å bliver til ae, oe og aa."""
+    """"Firma 2" → ``firma-2``. Æ, ø, å become ae, oe, aa."""  # allow-danish: input that slugify must accept
     text = name.strip().lower().translate(_DANISH)
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
@@ -34,39 +34,39 @@ def slugify(name: str) -> str:
 
 def validate_display_name(name: str, accounts: Iterable[Account],
                           exclude: Path | None = None) -> str:
-    """Returnér navnet uden mellemrum i enderne, eller rejs ``NamingError``.
+    """Return the name without spaces at the ends, or raise ``NamingError``.
 
-    ``exclude`` er kontoen selv, når brugeren omdøber den.
+    ``exclude`` is the account itself when the user renames it.
     """
     clean = " ".join(name.split())
     if not clean:
-        raise NamingError("Skriv et visningsnavn.")
+        raise NamingError("Type a display name.")
     for account in accounts:
         if exclude is not None and Path(account.confdir) == Path(exclude):
             continue
         if account.name.strip().casefold() == clean.casefold():
-            raise NamingError(f'Der findes allerede en konto, der hedder "{account.name}".')
+            raise NamingError(f'An account with the name "{account.name}" already exists.')
     return clean
 
 
 def plan_new_account(name: str, accounts: Iterable[Account],
                      home: Path | None = None) -> NewAccount:
-    """Kontrollér navnet og find stierne til en ny konto. Opretter ingen filer."""
+    """Check the name and find the paths for a new account. Creates no files."""
     accounts = list(accounts)
     clean = validate_display_name(name, accounts)
     slug = slugify(clean)
     if not slug:
-        raise NamingError("Visningsnavnet skal indeholde mindst ét bogstav eller tal.")
+        raise NamingError("The display name must contain at least one letter or digit.")
     confdir = config_home(home) / f"{CONFDIR_PREFIX}{slug}"
     if confdir.exists():
-        raise NamingError(f"Mappen {confdir} findes allerede. Vælg et andet navn.")
+        raise NamingError(f"The folder {confdir} already exists. Choose a different name.")
     service = f"{CONFDIR_PREFIX}{slug}.service"
     if (unit_dir(home) / service).exists():
-        raise NamingError(f"Servicen {service} findes allerede. Vælg et andet navn.")
+        raise NamingError(f"The service {service} already exists. Choose a different name.")
     return NewAccount(name=clean, slug=slug, confdir=confdir, service=service)
 
 
 def suggest_sync_dir(name: str) -> str:
-    """Forslaget ``~/OneDrive-<Navn>``. Mellemrum bliver til bindestreger."""
+    """The suggestion ``~/OneDrive-<Name>``. Spaces become hyphens."""
     clean = "-".join(name.replace("/", " ").split())
     return f"~/OneDrive-{clean}" if clean else "~/OneDrive-"

@@ -5,7 +5,7 @@ import QtQuick.Templates as T
 import Skyhus
 import "../components" as UI
 
-// Bekræftelsen af de lokale stier, som applikationen flytter til papirkurven.
+// The confirmation of the local paths that the application moves to Trash.
 UI.Sheet {
     id: sheet
     objectName: "confirmRemoval"
@@ -16,12 +16,12 @@ UI.Sheet {
     height: Math.min(parent.height - Theme.spacingXL, implicitHeight)
     closePolicy: T.Popup.NoAutoClose
     visible: controller.pickerState === "confirm"
-    title: "Fjern lokale mapper og filer"
+    title: "Remove local folders and files"
 
     Text {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: "Applikationen flytter disse lokale mapper og filer til papirkurven. OneDrive beholder dem."
+        text: "Skyhus moves these local folders and files to Trash. OneDrive keeps them."
         font: Theme.body
         color: Theme.textPrimary
     }
@@ -85,19 +85,19 @@ UI.Sheet {
 
     Text {
         objectName: "removalSize"
-        text: "Samlet størrelse: " + sheet.controller.removalSize
+        text: "Total size: " + sheet.controller.removalSize
         font: Theme.caption
         color: Theme.textSecondary
     }
 
     buttons: [
         UI.SecondaryButton {
-            text: "Annullér"
+            text: "Cancel"
             onClicked: sheet.controller.cancelRemoval()
         },
         UI.SecondaryButton {
             destructive: true
-            text: "Flyt til papirkurven"
+            text: "Move to Trash"
             onClicked: sheet.controller.confirmRemoval()
         }
     ]

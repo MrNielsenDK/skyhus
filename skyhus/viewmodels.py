@@ -1,4 +1,4 @@
-"""Qt-objekter, som QML binder til. Logikken ligger i de rene moduler."""
+"""Qt objects that QML binds to. The logic is in the pure modules."""
 
 from __future__ import annotations
 
@@ -55,25 +55,25 @@ from .theme import avatar_color, avatar_text_color, initials
 log = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 200
-SERVICE_STOPPED_NOTE = "Servicen er stoppet, mens du logger ind"
+SERVICE_STOPPED_NOTE = "The service is stopped while you sign in"
 PICKER_POLL_INTERVAL_MS = 100
 STATUS_INTERVAL_MS = 3000
 STATUS_POLL_INTERVAL_MS = 100
 CLOSE_POLL_INTERVAL_MS = 100
-ACTION_TEXTS = {"start": "Starter {}", "restart": "Genstarter {}", "resync": "Genstarter {} med --resync",
-                "cancel_resync": "Afbryder resync for {}"}
-"""Teksten i arket "Applikationen lukker, når arbejdet er færdigt" for hver servicehandling."""
+ACTION_TEXTS = {"start": "Starting {}", "restart": "Restarting {}", "resync": "Restarting {} with --resync",
+                "cancel_resync": "Stopping resync for {}"}
+"""The text in the sheet "Skyhus closes when the work is done" for each service action."""
 PROGRESS_INTERVAL_MS = 2000
-"""Så ofte læser applikationen nye linjer fra journalen under "Resynkroniserer" (feature 0009)."""
-STEP_STATE_TEXTS = {apply_mod.WAITING: "Venter", apply_mod.RUNNING: "I gang",
-                    apply_mod.DONE: "Færdigt", apply_mod.FAILED: "Fejlet", apply_mod.CANCELLED: "Afbrudt"}
+"""How often the application reads new lines from the journal during "Resyncing" (feature 0009)."""
+STEP_STATE_TEXTS = {apply_mod.WAITING: "Waiting", apply_mod.RUNNING: "Running",
+                    apply_mod.DONE: "Done", apply_mod.FAILED: "Failed", apply_mod.CANCELLED: "Stopped"}
 NOT_RUNNING = frozenset({STOPPING, STOPPED, FAILED, NEEDS_RESYNC, RESYNC_CANCELLED})
-"""Tilstandene, hvor servicen ikke kører. Efter en afbrudt upload starter applikationen den ikke (feature 0010)."""
+"""The states where the service is not running. After a stopped upload, the application does not start it (feature 0010)."""
 NO_PROGRESS = {"visible": False}
 
 
 def progress_data(status: AccountStatus, now: float) -> dict:
-    """Fremdriften for kortet "Service" som et map til QML (feature 0009)."""
+    """The progress for the "Service" card as a map for QML (feature 0009)."""
     progress = status.progress
     active = status.state.key == RESYNCING
     if progress is None or not (active or progress.result):
@@ -86,20 +86,20 @@ def progress_data(status: AccountStatus, now: float) -> dict:
     if latest and progress.percent is not None:
         latest = f"{latest} · {progress.percent} %"
     if progress.result == COMPLETE_WITH_FAILURES:
-        detail = f"{progress.failed} {'element' if progress.failed == 1 else 'elementer'} fejlede"
+        detail = f"{progress.failed} {'item' if progress.failed == 1 else 'items'} failed"
     else:
         detail = ""
     if progress.result and elapsed:
-        detail = f"{detail} · varede {elapsed}" if detail else f"Varede {elapsed}"
+        detail = f"{detail} · took {elapsed}" if detail else f"Took {elapsed}"
     return {
         "visible": True,
         "active": active,
-        "phase": progress.phase or "Starter resync",
+        "phase": progress.phase or "Starting resync",
         "counter": count_text(progress.done, progress.total) if progress.done or progress.total is not None else "",
         "determinate": progress.determinate,
         "value": progress.fraction,
         "latest": latest,
-        "elapsed": f"Tid siden start: {elapsed}" if elapsed and not progress.result else "",
+        "elapsed": f"Time since start: {elapsed}" if elapsed and not progress.result else "",
         "result": progress.result,
         "resultText": status.progress_text,
         "resultDetail": detail,
@@ -107,12 +107,12 @@ def progress_data(status: AccountStatus, now: float) -> dict:
 
 
 def step_data(step: int, state: str, progress: SyncProgress | None) -> dict:
-    """1 trin i arket "Ændrer mappevalg" som et map til QML (feature 0009)."""
+    """1 step in the "Changing folder selection" sheet as a map for QML (feature 0009)."""
     detail = latest = ""
     determinate, value = False, 0.0
     if progress is not None and state != apply_mod.WAITING:
         if step == apply_mod.TRASH:
-            detail = count_text(progress.done, progress.total, "sti", "stier") if progress.total else "Ingen stier"
+            detail = count_text(progress.done, progress.total, "path", "paths") if progress.total else "No paths"
         else:
             detail = count_text(progress.done, progress.total)
         latest = progress.latest
@@ -240,12 +240,12 @@ class AccountListModel(QAbstractListModel):
         if role == self.ServiceProgressRole:
             return progress_data(status, self.now())
         if role == self.ServiceCancellableRole:
-            # Knappen "Afbryd resync" (feature 0010).
+            # The "Stop resync" button (feature 0010).
             return state.key == RESYNCING
         return None
 
     def status(self, confdir: str) -> AccountStatus:
-        """Den sidst læste tilstand for kontoen."""
+        """The last state that was read for the account."""
         status = self._status.get(confdir)
         if status is not None:
             return status
@@ -257,7 +257,7 @@ class AccountListModel(QAbstractListModel):
         self._service_changed(statuses.keys())
 
     def set_progress(self, progress: dict[str, SyncProgress]) -> None:
-        """Ny fremdrift for konti under "Resynkroniserer". Tilstanden ændrer sig ikke."""
+        """New progress for accounts during "Resyncing". The state does not change."""
         for confdir, value in progress.items():
             status = self._status.get(confdir)
             if status is not None:
@@ -307,7 +307,7 @@ class AccountListModel(QAbstractListModel):
 
 
 class _Job:
-    """Kør en funktion i en tråd. ``poll`` i brugerfladen henter resultatet."""
+    """Run a function in a thread. ``poll`` in the user interface gets the result."""
 
     def __init__(self, kind: str, fn, *args, **kwargs):
         self.kind = kind
@@ -320,7 +320,7 @@ class _Job:
     def _run(self, fn, args, kwargs) -> None:
         try:
             self.result = fn(*args, **kwargs)
-        except BaseException as exc:  # noqa: BLE001 - fejlen vises for brugeren
+        except BaseException as exc:  # noqa: BLE001 - the user sees the error
             self.error = exc
 
     @property
@@ -329,7 +329,7 @@ class _Job:
 
 
 class FolderTreeModel(QAbstractListModel):
-    """Træet i mappevælgeren som en flad liste. ``depth`` giver indrykningen."""
+    """The tree in the folder picker as a flat list. ``depth`` gives the indentation."""
 
     NameRole = Qt.UserRole + 1
     PathRole = Qt.UserRole + 2
@@ -411,7 +411,7 @@ class FolderTreeModel(QAbstractListModel):
         return path in self._children
 
     def set_children(self, parent_path: str, folders: list[Folder]) -> None:
-        """Gem undermapperne og vis dem, hvis overmappen er foldet ud."""
+        """Save the subfolders and show them if the parent folder is expanded."""
         self._children[parent_path] = list(folders)
         if parent_path == "":
             self.beginResetModel()
@@ -484,7 +484,7 @@ class AppController(QObject):
     resyncChanged = Signal()
     closeChanged = Signal()
     closeReady = Signal()
-    """Vinduet må lukke nu (feature 0008). QML kalder ``close()`` igen."""
+    """The window can close now (feature 0008). QML calls ``close()`` again."""
     applyChanged = Signal()
     cancelResyncChanged = Signal()
 
@@ -524,7 +524,7 @@ class AppController(QObject):
         self._picker_timer = QTimer(self)
         self._picker_timer.setInterval(PICKER_POLL_INTERVAL_MS)
         self._picker_timer.timeout.connect(self._poll_picker)
-        # Servicestatus (feature 0004). Timeren kører kun, mens vinduet er synligt.
+        # Service status (feature 0004). The timer runs only while the window is visible.
         self._clock = clock
         self._sleep = sleep
         self._status_reader = StatusReader(home=home, run=self._run, proc_root=self._proc_root)
@@ -539,21 +539,21 @@ class AppController(QObject):
         self._status_poll_timer = QTimer(self)
         self._status_poll_timer.setInterval(STATUS_POLL_INTERVAL_MS)
         self._status_poll_timer.timeout.connect(self._poll_status)
-        # Fremdrift under "Resynkroniserer" (feature 0009). Timeren kører kun, mens vinduet er synligt.
+        # Progress during "Resyncing" (feature 0009). The timer runs only while the window is visible.
         self._progress_job: _Job | None = None
         self._progress_timer = QTimer(self)
         self._progress_timer.setInterval(PROGRESS_INTERVAL_MS)
         self._progress_timer.timeout.connect(self.refreshProgress)
-        # Arket "Ændrer mappevalg" (feature 0009). _Job-tråden skriver trinnene under låsen.
+        # The "Changing folder selection" sheet (feature 0009). The _Job thread writes the steps under the lock.
         self._apply_state = ""
         self._apply_lock = threading.Lock()
         self._apply_steps: dict[int, tuple[str, SyncProgress | None]] = {}
         self._apply_version = 0
         self._apply_seen = 0
-        # "Afbryd" i trin 2 (feature 0010).
+        # "Stop" in step 2 (feature 0010).
         self._apply_cancel: apply_mod.CancelFlag | None = None
         self._apply_cancelling = False
-        # Luk under arbejde (feature 0008). Nøglen er tråden eller _Job-objektet.
+        # Close during work (feature 0008). The key is the thread or the _Job object.
         self._critical_jobs: dict[object, str] = {}
         self._closing = False
         self._close_allowed = False
@@ -562,7 +562,7 @@ class AppController(QObject):
         self._close_timer.timeout.connect(self._poll_close)
         self.refresh()
 
-    # Egenskaber til QML
+    # Properties for QML
 
     def _get_accounts(self) -> AccountListModel:
         return self._model
@@ -588,14 +588,14 @@ class AppController(QObject):
         return SERVICE_STOPPED_NOTE if self._flow is not None and self._flow.service_stopped else ""
 
     loginNote = Property(str, _get_login_note, notify=loginChanged)
-    """Teksten i login-arket, når flowet har stoppet kontoens service (feature 0005)."""
+    """The text in the sign-in sheet when the flow has stopped the service of the account (feature 0005)."""
 
     def _get_message(self) -> str:
         return self._message
 
     message = Property(str, _get_message, notify=messageChanged)
 
-    # Mappevælgeren
+    # The folder picker
 
     def _get_folders(self) -> FolderTreeModel:
         return self._folders
@@ -606,7 +606,7 @@ class AppController(QObject):
         return self._picker_state
 
     pickerState = Property(str, _get_picker_state, notify=pickerChanged)
-    """``closed``, ``loading``, ``open``, ``checking``, ``confirm`` eller ``applying``."""
+    """``closed``, ``loading``, ``open``, ``checking``, ``confirm`` or ``applying``."""
 
     def _get_picker_error(self) -> str:
         return self._picker_error
@@ -643,29 +643,29 @@ class AppController(QObject):
 
     removalSize = Property(str, _get_removal_size, notify=pickerChanged)
 
-    # Servicestatus
+    # Service status
 
     def _get_resync_name(self) -> str:
         account = self._find_account(self._resync_confdir) if self._resync_confdir else None
         return account.name if account else ""
 
     resyncAccountName = Property(str, _get_resync_name, notify=resyncChanged)
-    """Navnet på kontoen, som venter på bekræftelsen af "Genstart med resync", eller tom."""
+    """The name of the account that waits for the confirmation of "Restart with resync", or empty."""
 
     def _get_cancel_resync_name(self) -> str:
         account = self._find_account(self._cancel_resync_confdir) if self._cancel_resync_confdir else None
         return account.name if account else ""
 
     cancelResyncAccountName = Property(str, _get_cancel_resync_name, notify=cancelResyncChanged)
-    """Navnet på kontoen, som venter på bekræftelsen af "Afbryd resync", eller tom (feature 0010)."""
+    """The name of the account that waits for the confirmation of "Stop resync", or empty (feature 0010)."""
 
-    # Arket "Ændrer mappevalg"
+    # The "Changing folder selection" sheet
 
     def _get_apply_state(self) -> str:
         return self._apply_state
 
     applyState = Property(str, _get_apply_state, notify=applyChanged)
-    """Tom, ``running``, ``failed`` eller ``cancelled``. Arket er synligt, når værdien ikke er tom."""
+    """Empty, ``running``, ``failed`` or ``cancelled``. The sheet is visible when the value is not empty."""
 
     def _get_apply_cancellable(self) -> bool:
         if self._apply_state != "running" or self._apply_cancel is None or self._apply_cancelling:
@@ -675,13 +675,13 @@ class AppController(QObject):
         return upload is not None and upload[0] == apply_mod.RUNNING
 
     applyCancellable = Property(bool, _get_apply_cancellable, notify=applyChanged)
-    """Knappen "Afbryd" er synlig. Det gælder kun, mens trin 2 kører (feature 0010)."""
+    """The "Stop" button is visible. This applies only while step 2 runs (feature 0010)."""
 
     def _get_apply_cancelling(self) -> bool:
         return self._apply_cancelling
 
     applyCancelling = Property(bool, _get_apply_cancelling, notify=applyChanged)
-    """Brugeren har klikket "Afbryd", og uploaden stopper nu."""
+    """The user clicked "Stop", and the upload stops now."""
 
     def _get_apply_steps(self) -> list:
         with self._apply_lock:
@@ -689,23 +689,23 @@ class AppController(QObject):
         return [step_data(step, *steps[step]) for step in apply_mod.STEPS if step in steps]
 
     applySteps = Property("QVariantList", _get_apply_steps, notify=applyChanged)
-    """De 5 trin med titel, tilstand, antal og seneste fil."""
+    """The 5 steps with title, state, count and latest file."""
 
-    # Luk under arbejde
+    # Close during work
 
     def _get_busy_text(self) -> str:
         return "\n".join(self._critical_jobs.values())
 
     busyText = Property(str, _get_busy_text, notify=closeChanged)
-    """Handlingerne, der kan stoppe eller starte en service, og som kører nu. 1 per linje."""
+    """The actions that can stop or start a service and that run now. 1 per line."""
 
     def _get_closing(self) -> bool:
         return self._closing
 
     closing = Property(bool, _get_closing, notify=closeChanged)
-    """Brugeren har lukket vinduet, og applikationen venter på handlingerne i ``busyText``."""
+    """The user closed the window, and the application waits for the actions in ``busyText``."""
 
-    # Handlinger fra QML
+    # Actions from QML
 
     @Slot()
     def refresh(self) -> None:
@@ -732,15 +732,15 @@ class AppController(QObject):
         except NamingError as exc:
             return str(exc)
         except OSError as exc:
-            return f"Kan ikke gemme navnet: {exc}"
+            return f"Cannot save the name: {exc}"
         self.refresh()
         return ""
 
     @Slot(str, str, result=str)
     def addAccount(self, name: str, sync_dir: str) -> str:
-        """Opret kontoen og start login. Returnerer en fejlbesked eller tom."""
+        """Create the account and start the sign-in. Returns an error message or empty."""
         if self._flow is not None:
-            return "Et andet login er i gang."
+            return "Another sign-in is in progress."
         try:
             new = plan_new_account(name, self._model.accounts(), self._home)
             validate_sync_dir(sync_dir)
@@ -749,7 +749,7 @@ class AppController(QObject):
         except (NamingError, ValueError) as exc:
             return str(exc)
         except OSError as exc:
-            return f"Kan ikke oprette kontoen: {exc}"
+            return f"Cannot create the account: {exc}"
         self.refresh()
         self._start_login(new.confdir, new.name, "")
         return ""
@@ -777,7 +777,7 @@ class AppController(QObject):
             return
         self._flow.cancel()
         if self._flow.cancel_requested and self._service_thread is not None:
-            # Tråden stopper servicen. _poll afslutter flowet, når tråden er færdig.
+            # The thread stops the service. _poll ends the flow when the thread is done.
             self._set_login_state("cancelling")
             return
         self._poll()
@@ -843,7 +843,7 @@ class AppController(QObject):
             return
         folders = self._folders.selection.paths
         if not self._sync_all and not folders:
-            self._set_picker(error="Vælg mindst 1 mappe, eller vælg \"Synkroniser alle mapper\".")
+            self._set_picker(error="Choose at least 1 folder, or choose \"Sync all folders\".")
             return
         self._set_picker(state="checking", error="")
         self._start_job("prepare", apply_mod.prepare, account, sync_all=self._sync_all,
@@ -869,13 +869,13 @@ class AppController(QObject):
         self._close_picker()
         if for_login and self._flow is not None:
             flow = self._flow
-            self._set_message(f"{flow.name} er logget ind. Servicen er ikke startet, "
-                              "fordi der ikke er valgt mapper.")
+            self._set_message(f"{flow.name} is signed in. The service is not started, "
+                              "because no folders are chosen.")
             self._end_login()
 
     @Slot(bool)
     def setWindowVisible(self, visible: bool) -> None:
-        """Timeren kører, mens vinduet er synligt, og stopper, når det er minimeret."""
+        """The timer runs while the window is visible and stops when it is minimized."""
         if visible and not self._status_timer.isActive():
             self._status_timer.start()
             self._progress_timer.start()
@@ -886,7 +886,7 @@ class AppController(QObject):
 
     @Slot()
     def refreshStatus(self) -> None:
-        """Læs tilstanden for alle konti i en tråd."""
+        """Read the state of all accounts in a thread."""
         if self._status_job is not None:
             self._status_again = True
             return
@@ -895,7 +895,7 @@ class AppController(QObject):
 
     @Slot()
     def refreshProgress(self) -> None:
-        """Læs nye linjer fra journalen for konti under "Resynkroniserer" i en tråd."""
+        """Read new lines from the journal for accounts during "Resyncing" in a thread."""
         if self._progress_job is not None:
             return
         accounts = self._model.resyncing()
@@ -906,25 +906,25 @@ class AppController(QObject):
 
     @Slot()
     def closeApplyProgress(self) -> None:
-        """Knappen "Luk" i arket "Ændrer mappevalg", når et trin er fejlet, eller ændringen er afbrudt."""
+        """The "Close" button in the "Changing folder selection" sheet when a step failed or the change was stopped."""
         if self._apply_state in ("failed", "cancelled"):
             self._set_apply_state("")
 
     @Slot()
     def cancelApply(self) -> None:
-        """Knappen "Afbryd" i arket "Ændrer mappevalg". Gør intet uden for trin 2."""
+        """The "Stop" button in the "Changing folder selection" sheet. Does nothing outside step 2."""
         flag = self._apply_cancel
         if flag is None or self._apply_cancelling or not self._get_apply_cancellable():
             return
         if flag.request():
-            log.info("Brugeren afbryder uploaden for %s",
-                     self._picker_account.name if self._picker_account else "kontoen")
+            log.info("The user stops the upload for %s",
+                     self._picker_account.name if self._picker_account else "the account")
             self._apply_cancelling = True
             self.applyChanged.emit()
 
     @Slot(str)
     def serviceAction(self, confdir: str) -> None:
-        """Knappen i kortet "Service". "Genstart med resync" venter på en bekræftelse."""
+        """The button in the "Service" card. "Restart with resync" waits for a confirmation."""
         if self._model.is_busy(confdir) or self._resync_confdir or self._cancel_resync_confdir:
             return
         account = self._find_account(confdir)
@@ -956,7 +956,7 @@ class AppController(QObject):
 
     @Slot(str)
     def requestCancelResync(self, confdir: str) -> None:
-        """Knappen "Afbryd resync" i kortet "Service". Den venter på en bekræftelse (feature 0010)."""
+        """The "Stop resync" button in the "Service" card. It waits for a confirmation (feature 0010)."""
         if self._model.is_busy(confdir) or self._resync_confdir or self._cancel_resync_confdir:
             return
         account = self._find_account(confdir)
@@ -984,11 +984,11 @@ class AppController(QObject):
 
     @Slot(result=bool)
     def requestClose(self) -> bool:
-        """Svar sandt, hvis vinduet må lukke. Ellers vent på handlingerne og send ``closeReady``."""
+        """Return true if the window can close. Otherwise wait for the actions and send ``closeReady``."""
         if self._close_allowed or not self._critical_jobs:
             return True
         if not self._closing:
-            log.info("Vinduet lukker, når dette er færdigt: %s", "; ".join(self._critical_jobs.values()))
+            log.info("The window closes when this is done: %s", "; ".join(self._critical_jobs.values()))
             self._closing = True
             self.closeChanged.emit()
         self._close_timer.start()
@@ -996,16 +996,16 @@ class AppController(QObject):
 
     @Slot()
     def forceClose(self) -> None:
-        """Knappen "Luk alligevel". Handlingerne kører videre, indtil processen slutter."""
+        """The "Close anyway" button. The actions continue until the process ends."""
         if self._critical_jobs:
-            log.warning("Vinduet lukker, mens disse handlinger kører. Servicen kan blive stående "
-                        "stoppet: %s", "; ".join(self._critical_jobs.values()))
+            log.warning("The window closes while these actions run. The service can stay "
+                        "stopped: %s", "; ".join(self._critical_jobs.values()))
         self._allow_close()
 
-    # Intern styring
+    # Internal control
 
     def _begin_critical(self, key: object, text: str) -> None:
-        """Registrér en handling, der kan stoppe eller starte en service."""
+        """Register an action that can stop or start a service."""
         self._critical_jobs[key] = text
         self.closeChanged.emit()
 
@@ -1037,7 +1037,7 @@ class AppController(QObject):
         self._status_poll_timer.start()
 
     def _start_cancel_resync(self, account: Account) -> None:
-        """Stop servicen i en tråd. Handlingen er kritisk efter feature 0008."""
+        """Stop the service in a thread. The action is critical as defined in feature 0008."""
         confdir = str(account.confdir)
         self._model.set_service_message(confdir, "")
         self._model.set_busy(confdir, True)
@@ -1051,7 +1051,7 @@ class AppController(QObject):
         if job is not None and job.done:
             self._status_job = None
             if job.error is not None:
-                log.error("Uventet fejl, da applikationen læste status", exc_info=job.error)
+                log.error("Unexpected error when the application read the status", exc_info=job.error)
             else:
                 self._model.set_statuses(job.result)
             if self._status_again:
@@ -1061,11 +1061,11 @@ class AppController(QObject):
         if progress_job is not None and progress_job.done:
             self._progress_job = None
             if progress_job.error is not None:
-                log.error("Uventet fejl, da applikationen læste fremdriften", exc_info=progress_job.error)
+                log.error("Unexpected error when the application read the progress", exc_info=progress_job.error)
             else:
                 self._model.set_progress(progress_job.result)
                 if any(p.result for p in progress_job.result.values()):
-                    # Resync er færdig. Tilstanden skifter fra "Resynkroniserer" til "Kører".
+                    # Resync is complete. The state changes from "Resyncing" to "Running".
                     self.refreshStatus()
         for confdir, action in list(self._action_jobs.items()):
             if not action.done:
@@ -1083,8 +1083,8 @@ class AppController(QObject):
     def _action_error_text(error: BaseException) -> str:
         if isinstance(error, (SystemctlError, OSError)):
             return str(error)
-        log.error("Uventet fejl i en servicehandling", exc_info=error)
-        return f"Uventet fejl: {error}"
+        log.error("Unexpected error in a service action", exc_info=error)
+        return f"Unexpected error: {error}"
 
     def _find_account(self, confdir: str) -> Account | None:
         for account in self._model.accounts():
@@ -1094,7 +1094,7 @@ class AppController(QObject):
 
     def _open_picker(self, account: Account, *, for_login: bool = False) -> None:
         if not (account.confdir / "refresh_token").is_file():
-            self._set_message(f"{account.name}: Kontoen er ikke logget ind.")
+            self._set_message(f"{account.name}: The account is not signed in.")
             return
         current = read_sync_list(account.confdir)
         self._folders.reset(Selection(current.folders),
@@ -1143,13 +1143,13 @@ class AppController(QObject):
                         cancel=self._apply_cancel, service_active=state not in NOT_RUNNING,
                         send_signal=self._send_signal)
         if change.synced:
-            text = f"Gemmer mappevalget for {change.account.name} og genstarter {change.account.service}"
+            text = f"Saving the folder selection for {change.account.name} and restarting {change.account.service}"
         else:
-            text = f"Gemmer mappevalget for {change.account.name}"
+            text = f"Saving the folder selection for {change.account.name}"
         self._begin_critical(self._jobs[-1], text)
 
     def _on_apply_step(self, step: int, state: str, progress: SyncProgress | None) -> None:
-        """Kaldes fra _Job-tråden. Sender ikke Qt-signaler. ``_poll_picker`` gør det."""
+        """Called from the _Job thread. Does not send Qt signals. ``_poll_picker`` does that."""
         with self._apply_lock:
             self._apply_steps[step] = (state, progress)
             self._apply_version += 1
@@ -1160,7 +1160,7 @@ class AppController(QObject):
             self.applyChanged.emit()
 
     def _poll_picker(self) -> None:
-        # Find de færdige jobs først. Så er deres sidste trin med i versionen herunder.
+        # Find the finished jobs first. Then their last step is included in the version below.
         finished = [j for j in self._jobs if j.done]
         with self._apply_lock:
             version = self._apply_version
@@ -1200,7 +1200,7 @@ class AppController(QObject):
             self._apply_cancel = None
             self._apply_cancelling = False
             if error is None and job.result.outcome == apply_mod.CANCELLED:
-                # Arket viser "Ændringen er afbrudt", til brugeren klikker "Luk". Mappevalget er uændret.
+                # The sheet shows "The change is stopped" until the user clicks "Close". The folder selection does not change.
                 self._change = None
                 self._set_apply_state("cancelled")
                 self.applyChanged.emit()
@@ -1209,7 +1209,7 @@ class AppController(QObject):
             if error is not None:
                 self._change = None
                 if self._apply_state == "running":
-                    # Arket bliver stående med det fejlede trin, til brugeren klikker "Luk".
+                    # The sheet stays open with the failed step until the user clicks "Close".
                     self._set_apply_state("failed")
                 self._set_picker(state="open", error=self._error_text(error))
                 return
@@ -1221,7 +1221,7 @@ class AppController(QObject):
         self._close_picker()
         lines = []
         if result.trash_failures:
-            lines.append("Disse stier kunne ikke flyttes til papirkurven:")
+            lines.append("These paths could not be moved to Trash:")
             lines.extend(str(p) for p in result.trash_failures)
         if for_login:
             self._folders_chosen = True
@@ -1231,18 +1231,18 @@ class AppController(QObject):
             self._poll()
             return
         if result.resynced:
-            lines.insert(0, f"Mappevalget for {account.name} er gemt. {account.service} "
-                            "synkroniserer nu med --resync. Det kan tage lang tid.")
+            lines.insert(0, f"The folder selection for {account.name} is saved. {account.service} "
+                            "now syncs with --resync. This can take a long time.")
         else:
-            lines.insert(0, f"Mappevalget for {account.name} er gemt.")
+            lines.insert(0, f"The folder selection for {account.name} is saved.")
         self._set_message("\n".join(lines))
 
     @staticmethod
     def _error_text(error: BaseException) -> str:
         if isinstance(error, (GraphError, apply_mod.ApplyError, SelectionError)):
             return str(error)
-        log.exception("Uventet fejl i mappevælgeren", exc_info=error)
-        return f"Uventet fejl: {error}"
+        log.exception("Unexpected error in the folder picker", exc_info=error)
+        return f"Unexpected error: {error}"
 
     def _set_picker(self, *, state: str | None = None, error: str | None = None) -> None:
         changed = False
@@ -1261,8 +1261,8 @@ class AppController(QObject):
                                popen=self._popen, run=self._run, proc_root=self._proc_root,
                                send_signal=self._send_signal)
         if self._flow.reauth:
-            # Flowet stopper måske servicen først. Det kan tage op til 90 sekunder.
-            text = f"Stopper {service} før login" if service else f"Starter login for {name}"
+            # The flow can stop the service first. This can take up to 90 seconds.
+            text = f"Stopping {service} before sign-in" if service else f"Starting sign-in for {name}"
             self._start_service_thread(self._flow.start, text)
             self._set_login_state("starting")
         else:
@@ -1281,7 +1281,7 @@ class AppController(QObject):
             self._service_thread = None
         state = flow.poll()
         if state is FlowState.LOGGED_IN and not flow.service and not flow.reauth and not self._folders_chosen:
-            # En ny konto: brugeren vælger mapper, før servicen starter.
+            # A new account: the user chooses folders before the service starts.
             if self._picker_state == "closed":
                 self._timer.stop()
                 self.refresh()
@@ -1289,33 +1289,33 @@ class AppController(QObject):
                 if account is not None:
                     self._open_picker(account, for_login=True)
                 if self._picker_state == "closed":
-                    self._set_message(f"{flow.name} er logget ind, men mappevælgeren kan ikke åbne.")
+                    self._set_message(f"{flow.name} is signed in, but the folder picker cannot open.")
                     self._end_login()
                     return
                 self._set_login_state("choosing_folders")
             return
         if state is FlowState.LOGGED_IN:
-            # systemctl kan vente på ExecStartPre i 15 sekunder. Kør det i en tråd.
+            # systemctl can wait for ExecStartPre for 15 seconds. Run it in a thread.
             self._start_service_thread(flow.activate_service,
-                                       f"Starter {flow.service or 'servicen for ' + flow.name}")
+                                       f"Starting {flow.service or 'the service for ' + flow.name}")
             self._set_login_state("activating")
             return
         if flow.needs_restart:
-            # Login fejlede eller blev afbrudt. Start servicen igen (feature 0005).
-            self._start_service_thread(flow.restore_service, f"Starter {flow.service} igen")
+            # The sign-in failed or was cancelled. Start the service again (feature 0005).
+            self._start_service_thread(flow.restore_service, f"Starting {flow.service} again")
             self._set_login_state("cancelling" if flow.cancel_requested else "activating")
             return
-        restart_error = f"\nServicen {flow.service} kunne ikke startes igen:\n{flow.service_error}"
+        restart_error = f"\nThe service {flow.service} could not start again:\n{flow.service_error}"
         if state is FlowState.DONE:
             if flow.service_error:
-                self._set_message(f"{flow.name} er logget ind, men servicen fejlede:\n{flow.service_error}")
+                self._set_message(f"{flow.name} is signed in, but the service failed:\n{flow.service_error}")
             elif flow.reauth and not flow.service_was_active:
-                self._set_message(f"{flow.name} er logget ind.")
+                self._set_message(f"{flow.name} is signed in.")
             else:
-                self._set_message(f"{flow.name} er logget ind. Servicen {flow.service} kører.")
+                self._set_message(f"{flow.name} is signed in. The service {flow.service} is running.")
             self._end_login()
         elif state is FlowState.FAILED:
-            self._set_message(f"Login fejlede for {flow.name}:\n{flow.error}"
+            self._set_message(f"Sign-in failed for {flow.name}:\n{flow.error}"
                               + (restart_error if flow.service_error else ""))
             self._end_login()
         elif state is FlowState.CANCELLED:
@@ -1349,7 +1349,7 @@ class AppController(QObject):
             self.messageChanged.emit()
 
     def shutdown(self) -> None:
-        """Stop en igangværende login-proces, når vinduet lukker."""
+        """Stop a running sign-in process when the window closes."""
         if self._flow is not None and self._service_thread is None:
             self._flow.cancel()
             if self._flow.needs_restart:

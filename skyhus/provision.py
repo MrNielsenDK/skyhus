@@ -1,4 +1,4 @@
-"""Opret config-mappen og synkmappen for en ny konto."""
+"""Create the config folder and the sync folder for a new account."""
 
 from __future__ import annotations
 
@@ -10,17 +10,17 @@ from . import sideeffects
 
 def validate_sync_dir(sync_dir: str) -> str:
     if not sync_dir.strip():
-        raise ValueError("Vælg en synkmappe.")
+        raise ValueError("Choose a sync folder.")
     if '"' in sync_dir or "\n" in sync_dir or "\r" in sync_dir:
-        raise ValueError("Synkmappen må ikke indeholde anførselstegn eller linjeskift.")
+        raise ValueError("The sync folder must not contain quotation marks or line breaks.")
     return sync_dir
 
 
 def provision_account(confdir: Path, sync_dir: str) -> None:
-    """Opret ``confdir`` med en ``config``, der kun sætter ``sync_dir``.
+    """Create ``confdir`` with a ``config`` that only sets ``sync_dir``.
 
-    Mappen må ikke findes i forvejen. Synkmappen bliver oprettet, hvis den
-    mangler.
+    The folder must not exist before. The sync folder is created if it
+    is missing.
     """
     validate_sync_dir(sync_dir)
     confdir = Path(confdir)

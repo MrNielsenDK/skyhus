@@ -10,7 +10,7 @@ UI.Sheet {
     required property var controller
     property bool syncDirEdited: false
 
-    title: "Tilføj konto"
+    title: "Add account"
 
     onAboutToShow: {
         nameField.text = ""
@@ -29,14 +29,14 @@ UI.Sheet {
     }
 
     Text {
-        text: "Visningsnavn"
+        text: "Display name"
         font: Theme.headline
         color: Theme.textPrimary
     }
     UI.TextField {
         id: nameField
         Layout.fillWidth: true
-        placeholderText: "Fx Firma 2"
+        placeholderText: "For example Work"
         onTextChanged: {
             if (!sheet.syncDirEdited)
                 syncField.text = sheet.controller.suggestSyncDir(text)
@@ -46,7 +46,7 @@ UI.Sheet {
 
     Text {
         Layout.topMargin: Theme.spacingS
-        text: "Synkmappe"
+        text: "Sync folder"
         font: Theme.headline
         color: Theme.textPrimary
     }
@@ -61,13 +61,13 @@ UI.Sheet {
             onAccepted: sheet.submit()
         }
         UI.SecondaryButton {
-            text: "Vælg …"
+            text: "Choose …"
             onClicked: folderDialog.open()
         }
     }
     Text {
         Layout.fillWidth: true
-        text: "Applikationen synkroniserer kontoens filer til denne mappe."
+        text: "Skyhus syncs the files of the account to this folder."
         font: Theme.caption
         color: Theme.textSecondary
         wrapMode: Text.Wrap
@@ -79,7 +79,7 @@ UI.Sheet {
 
     FolderDialog {
         id: folderDialog
-        title: "Vælg synkmappe"
+        title: "Choose sync folder"
         onAccepted: {
             syncField.text = sheet.controller.folderToSyncDir(selectedFolder)
             sheet.syncDirEdited = true
@@ -88,11 +88,11 @@ UI.Sheet {
 
     buttons: [
         UI.SecondaryButton {
-            text: "Annullér"
+            text: "Cancel"
             onClicked: sheet.close()
         },
         UI.PrimaryButton {
-            text: "Tilføj og log ind"
+            text: "Add and sign in"
             onClicked: sheet.submit()
         }
     ]

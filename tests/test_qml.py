@@ -1,7 +1,7 @@
-"""Indlæsning af QML-filerne (feature 0001).
+"""Loading the QML files (feature 0001).
 
-Testene bruger QT_QPA_PLATFORM=offscreen. LoginSheet.qml kræver QtWebEngine.
-Testen springer over, hvis modulet ikke er installeret.
+The tests use QT_QPA_PLATFORM=offscreen. LoginSheet.qml needs QtWebEngine.
+The test is skipped if the module is not installed.
 """
 
 import os
@@ -27,7 +27,7 @@ def load(app):
     engines = []
 
     def _load(home, **kwargs):
-        # Vinduet læser servicestatus, når det er synligt. Testen må ikke kalde den rigtige systemctl.
+        # The window reads the service status when it is visible. The test must not call the real systemctl.
         kwargs.setdefault("run", ScriptedRun())
         controller = AppController(home, **kwargs)
         engine = QtQml.QQmlApplicationEngine()
@@ -39,7 +39,7 @@ def load(app):
         return engine, controller, warnings
 
     yield _load
-    # Vinduet skal forsvinde før controlleren, som QML binder til.
+    # The window must go before the controller that QML binds to.
     for engine, controller in engines:
         controller.shutdown()
         engine.deleteLater()
@@ -79,7 +79,7 @@ def test_folder_picker_and_confirmation_render_without_warnings(load, home, tmp_
     import time
     confdir = make_account_dir(home, "onedrive-x", config='sync_dir = "~/OneDrive-X"\n',
                                refresh_token=True, items=True)
-    (confdir / "sync_list").write_text("# kommentar\n/A/\n/B/\n")
+    (confdir / "sync_list").write_text("# comment\n/A/\n/B/\n")
     (home / "OneDrive-X" / "B").mkdir(parents=True)
     unit = home / ".config" / "systemd" / "user" / "onedrive-x.service"
     unit.parent.mkdir(parents=True)
@@ -122,8 +122,8 @@ def test_folder_picker_and_confirmation_render_without_warnings(load, home, tmp_
 # Design (feature 0003)
 
 def visible_items(root, name):
-    """Find synlige elementer i det visuelle træ. Delegates fra en ListView er
-    ikke QObject-børn af vinduet, så findChildren finder dem ikke."""
+    """Find visible items in the visual tree. Delegates from a ListView are
+    not QObject children of the window, so findChildren does not find them."""
     found = []
 
     def walk(item):
@@ -143,7 +143,7 @@ def test_empty_state_shows_text_and_button(load, home):
     assert warnings == []
     assert root.findChild(QObject, "emptyState").property("visible") is True
     label = root.findChild(QObject, "emptyLabel")
-    assert label.property("text") == "Ingen konti endnu"
+    assert label.property("text") == "No accounts yet"
     assert label.property("visible") is True
     assert root.findChild(QObject, "emptyAddButton").property("visible") is True
     assert root.findChild(QObject, "accountPage").property("visible") is False
@@ -174,8 +174,8 @@ def test_window_has_minimum_size(load, home):
     assert root.property("height") == 620
     assert root.property("minimumWidth") == 820
     assert root.property("minimumHeight") == 540
-    # Vinduessystemet håndhæver mindstestørrelsen. Platformen "offscreen" gør det
-    # ikke, så testen kontrollerer den størrelse, som vinduet giver videre.
+    # The window system enforces the minimum size. The "offscreen" platform does
+    # not, so the test checks the size that the window passes on.
     assert root.minimumSize() == QtCore.QSize(820, 540)
 
 
@@ -194,7 +194,7 @@ def test_main_qml_uses_theme_background(load, home):
     assert isinstance(content.property("color"), QColor)
 
 
-# Servicestatus (feature 0004)
+# Service status (feature 0004)
 
 def service_show(name, active="active", status="0"):
     return (f"Id={name}\nLoadState=loaded\nActiveState={active}\nSubState=x\nResult=success\n"
@@ -233,13 +233,13 @@ def test_sidebar_dot_follows_service_state(load, home, tmp_path):
     read_status(controller)
     dots = visible_items(root, "sidebarStatusDot")
     assert [d.property("tone") for d in dots] == ["success"]
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Kører"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Running"
 
     run.outputs["show"] = service_show("onedrive-x.service", "failed")
     read_status(controller)
 
     assert [d.property("tone") for d in visible_items(root, "sidebarStatusDot")] == ["danger"]
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Fejlet"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Failed"
     assert root.findChild(QObject, "serviceActionButton").property("text") == "Start"
     assert warnings == []
 
@@ -262,7 +262,7 @@ def test_resync_confirmation_opens_before_anything_happens(load, home, tmp_path)
     assert sheet.property("visible") is True
     assert run.calls == calls
     controller.cancelResync()
-    # Arket glider ud, før det bliver usynligt.
+    # The sheet slides out before it becomes invisible.
     import time
     end = time.monotonic() + 2
     while sheet.property("visible") and time.monotonic() < end:
@@ -293,7 +293,7 @@ def test_minimized_window_stops_status_timer(load, home, tmp_path):
     read_status(controller)
 
 
-# Log ind igen med --reauth (feature 0005)
+# Sign in again with --reauth (feature 0005)
 
 def test_login_sheet_says_that_the_service_is_stopped(load, home, tmp_path):
     import time
@@ -318,14 +318,14 @@ def test_login_sheet_says_that_the_service_is_stopped(load, home, tmp_path):
     app.processEvents()
 
     assert controller.loginState == "starting"
-    assert note.property("text") == "Servicen er stoppet, mens du logger ind"
+    assert note.property("text") == "The service is stopped while you sign in"
     assert note.property("visible") is True
     assert warnings == []
 
 
-# Sikker tilstand (feature 0007)
+# Safe mode (feature 0007)
 
-SAFE_MODE_TEXT = "Sikker tilstand – applikationen ændrer ikke noget på systemet"
+SAFE_MODE_TEXT = "Safe mode – Skyhus does not change anything on the system"
 
 
 def test_safe_mode_shows_banner(load, home):
@@ -355,7 +355,7 @@ def test_banner_is_hidden_without_safe_mode(load, home, monkeypatch):
     assert banner is None or banner.property("visible") is False
 
 
-# Luk under arbejde (feature 0008)
+# Close during work (feature 0008)
 
 def test_closing_during_a_restart_shows_the_closing_sheet(load, home, tmp_path):
     import threading
@@ -397,10 +397,10 @@ def test_closing_during_a_restart_shows_the_closing_sheet(load, home, tmp_path):
     assert warnings == []
 
 
-# Fremdrift (feature 0009)
+# Progress (feature 0009)
 
 def pump_until(controller, predicate, timeout=5.0):
-    """Kør timerne i hånden, til ``predicate`` er sand. QML ser ændringerne efter hver runde."""
+    """Run the timers by hand until ``predicate`` is true. QML sees the changes after each round."""
     import time
     app = QtGui.QGuiApplication.instance()
     end = time.monotonic() + timeout
@@ -434,7 +434,7 @@ def test_apply_progress_sheet_shows_the_five_steps(load, home, tmp_path):
             assert release.wait(5)
 
     popen = FakeUploadPopen(["New items to upload to Microsoft OneDrive: 3",
-                             "Uploading new file: ./A/noter.md ... done",
+                             "Uploading new file: ./A/notes.md ... done",
                              "Uploading new file: ./A/budget.ods ... done"], on_line=on_line)
     graph = FakeGraph({"/v1.0/me/drive/root/children": {"value": [folder("A"), folder("B")]}})
     engine, controller, warnings = load(home, opener=graph, proc_root=proc, popen=popen,
@@ -446,11 +446,11 @@ def test_apply_progress_sheet_shows_the_five_steps(load, home, tmp_path):
     controller.toggleFolder(1)
     controller.acceptPicker()
     pump_until(controller, reached.is_set)
-    pump_until(controller, lambda: controller.applySteps and controller.applySteps[1]["detail"] == "1 af 3 filer")
+    pump_until(controller, lambda: controller.applySteps and controller.applySteps[1]["detail"] == "1 of 3 files")
 
     sheet = root.findChild(QObject, "applyProgressSheet")
     assert sheet.property("visible") is True
-    assert sheet.property("title") == "Ændrer mappevalg"
+    assert sheet.property("title") == "Changing folder selection"
     rows = visible_items(root, "applyStepRow")
     assert len(rows) == 5
     bars = visible_items(root, "applyStepBar")
@@ -480,21 +480,21 @@ def resync_qml(home, tmp_path, *messages):
 
 
 def test_service_card_shows_a_determinate_bar_at_30_of_120(load, home, tmp_path):
-    lines = [f"Downloading file: Ferie/IMG_{i:04}.JPG ... done" for i in range(30)]
+    lines = [f"Downloading file: Holiday/IMG_{i:04}.JPG ... done" for i in range(30)]
     run, proc = resync_qml(home, tmp_path, "Number of items to download from Microsoft OneDrive: 120", *lines)
     engine, controller, warnings = load(home, run=run, proc_root=proc)
     root = engine.rootObjects()[0]
 
     read_status(controller)
 
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resynkroniserer"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resyncing"
     assert [d.property("tone") for d in visible_items(root, "sidebarStatusDot")] == ["warning"]
     bar = root.findChild(QObject, "serviceProgressBar")
     assert bar.property("visible") is True
     assert bar.property("indeterminate") is False
     assert bar.property("value") == pytest.approx(0.25)
-    assert root.findChild(QObject, "serviceProgressCounter").property("text") == "30 af 120 filer"
-    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Downloader filer"
+    assert root.findChild(QObject, "serviceProgressCounter").property("text") == "30 of 120 files"
+    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Downloading files"
     assert warnings == []
 
 
@@ -509,26 +509,26 @@ def test_service_card_shows_an_indeterminate_bar_without_a_total(load, home, tmp
     bar = root.findChild(QObject, "serviceProgressBar")
     assert bar.property("visible") is True
     assert bar.property("indeterminate") is True
-    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Henter listen fra OneDrive"
+    assert root.findChild(QObject, "serviceProgressPhase").property("text") == "Getting the list from OneDrive"
     assert warnings == []
 
 
 def test_service_card_shows_that_the_resync_is_finished(load, home, tmp_path):
     run, proc = resync_qml(home, tmp_path, "Number of items to download from Microsoft OneDrive: 1",
-                           "Downloading file: Ferie/IMG_0000.JPG ... done",
+                           "Downloading file: Holiday/IMG_0000.JPG ... done",
                            "Sync with Microsoft OneDrive is complete")
     engine, controller, warnings = load(home, run=run, proc_root=proc)
     root = engine.rootObjects()[0]
 
     read_status(controller)
 
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Kører"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Running"
     assert root.findChild(QObject, "serviceProgressBar").property("visible") is False
-    assert root.findChild(QObject, "serviceProgressResult").property("text") == "Resync er færdig"
+    assert root.findChild(QObject, "serviceProgressResult").property("text") == "Resync complete"
     assert warnings == []
 
 
-# Afbryd upload og resync (feature 0010)
+# Stop upload and resync (feature 0010)
 
 def test_apply_sheet_has_cancel_during_upload_and_shows_the_result(load, home, tmp_path):
     from fakes import FakeSignals, FakeStoppablePopen
@@ -542,7 +542,7 @@ def test_apply_sheet_has_cancel_during_upload_and_shows_the_result(load, home, t
     proc = tmp_path / "proc"
     proc.mkdir()
     popen = FakeStoppablePopen(["New items to upload to Microsoft OneDrive: 3",
-                                "Uploading new file: ./A/noter.md ... done"])
+                                "Uploading new file: ./A/notes.md ... done"])
     graph = FakeGraph({"/v1.0/me/drive/root/children": {"value": [folder("A"), folder("B")]}})
     engine, controller, warnings = load(home, opener=graph, proc_root=proc, popen=popen,
                                         run=ScriptedRun(outputs={"cat": unit.read_text()}),
@@ -553,12 +553,12 @@ def test_apply_sheet_has_cancel_during_upload_and_shows_the_result(load, home, t
     controller.toggleFolder(1)
     controller.acceptPicker()
     pump_until(controller, lambda: controller.applyCancellable)
-    # QML ser ændringen efter næste runde af timeren.
+    # QML sees the change after the next round of the timer.
     pump_until(controller, lambda: bool(visible_items(root, "applyCancelButton")))
 
     buttons = visible_items(root, "applyCancelButton")
     assert len(buttons) == 1
-    assert buttons[0].property("text") == "Afbryd"
+    assert buttons[0].property("text") == "Stop"
     assert visible_items(root, "applyCancelledText") == []
 
     controller.cancelApply()
@@ -567,7 +567,7 @@ def test_apply_sheet_has_cancel_during_upload_and_shows_the_result(load, home, t
 
     assert visible_items(root, "applyCancelButton") == []
     texts = visible_items(root, "applyCancelledText")
-    assert [t.property("text") for t in texts] == ["Ændringen er afbrudt. Mappevalget er uændret."]
+    assert [t.property("text") for t in texts] == ["The change is stopped. The folder selection did not change."]
     assert len(visible_items(root, "applyProgressCloseButton")) == 1
     assert (confdir / "sync_list").read_text() == "/A/\n"
     controller.closeApplyProgress()
@@ -629,10 +629,10 @@ def test_cancel_resync_confirmation_and_resync_cancelled_card(load, home, tmp_pa
     root = engine.rootObjects()[0]
     app = QtGui.QGuiApplication.instance()
     read_status(controller)
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resynkroniserer"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resyncing"
     button = root.findChild(QObject, "serviceCancelResyncButton")
     assert button.property("visible") is True
-    assert button.property("text") == "Afbryd resync"
+    assert button.property("text") == "Stop resync"
     calls = list(run.calls)
 
     controller.requestCancelResync(str(home / ".config" / "onedrive-x"))
@@ -640,18 +640,18 @@ def test_cancel_resync_confirmation_and_resync_cancelled_card(load, home, tmp_pa
 
     sheet = root.findChild(QObject, "confirmCancelResync")
     assert sheet.property("visible") is True
-    assert "En ny resync begynder forfra." in root.findChild(QObject, "confirmCancelResyncText").property("text")
+    assert "A new resync starts from the beginning." in root.findChild(QObject, "confirmCancelResyncText").property("text")
     assert run.calls == calls
 
     controller.confirmCancelResync()
     end = time.monotonic() + 5
-    while (root.findChild(QObject, "serviceStateLabel").property("text") != "Resync afbrudt"
+    while (root.findChild(QObject, "serviceStateLabel").property("text") != "Resync stopped"
            and time.monotonic() < end):
         controller._poll_status()
         app.processEvents()
         time.sleep(0.01)
 
-    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resync afbrudt"
-    assert root.findChild(QObject, "serviceActionButton").property("text") == "Genstart med resync"
+    assert root.findChild(QObject, "serviceStateLabel").property("text") == "Resync stopped"
+    assert root.findChild(QObject, "serviceActionButton").property("text") == "Restart with resync"
     assert root.findChild(QObject, "serviceCancelResyncButton").property("visible") is False
     assert warnings == []

@@ -1,16 +1,16 @@
-"""Forløbet fra login til en kørende service for én konto.
+"""The flow from sign-in to a running service for one account.
 
-``LoginFlow`` binder ``auth.AuthSession`` sammen med ``service``. Login og
-service er 2 trin: ``poll()`` fører login frem til ``LOGGED_IN``, og
-``activate_service()`` opretter eller genstarter servicen bagefter. Så kan
-brugerfladen indsætte et trin imellem og køre ``systemctl`` i en tråd.
+``LoginFlow`` connects ``auth.AuthSession`` with ``service``. Sign-in and
+service are 2 steps: ``poll()`` moves the sign-in to ``LOGGED_IN``, and
+``activate_service()`` creates or restarts the service after that. Then
+the user interface can add a step between them and run ``systemctl`` in a thread.
 
-Har kontoen allerede en ``refresh_token``, logger flowet ind igen med
-``--reauth`` (feature 0005). Kører servicen, stopper flowet den før login og
-starter den igen bagefter, også når login fejler eller bliver afbrudt.
-``start()`` kan vente på ``systemctl stop``. Brugerfladen kører den i en tråd.
-``cancel()`` virker også, mens servicen stopper (feature 0008). Så starter
-flowet ikke klienten, når stoppet er færdigt.
+If the account already has a ``refresh_token``, the flow signs in again with
+``--reauth`` (feature 0005). If the service runs, the flow stops it before the sign-in
+and starts it again after, also when the sign-in fails or is cancelled.
+``start()`` can wait for ``systemctl stop``. The user interface runs it in a thread.
+``cancel()`` also works while the service stops (feature 0008). Then
+the flow does not start the client when the stop is done.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class FlowState(Enum):
     WAITING_FOR_USER = "waiting_for_user"
     WAITING_FOR_TOKEN = "waiting_for_token"
     LOGGED_IN = "logged_in"
-    """Kontoen er logget ind. Servicen er endnu ikke oprettet eller genstartet."""
+    """The account is signed in. The service is not created or restarted yet."""
     DONE = "done"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -53,7 +53,7 @@ _FROM_AUTH = {
 }
 
 ACTIVE_STATES = frozenset({"active", "activating", "reloading", "refreshing"})
-"""Værdierne af ``ActiveState``, hvor servicen kører eller er ved at starte."""
+"""The values of ``ActiveState`` where the service runs or is starting."""
 
 
 class LoginFlow:
@@ -67,25 +67,25 @@ class LoginFlow:
         self.confdir = Path(confdir)
         self.name = name
         self.service = service
-        """Kontoens eksisterende service, eller tom for en ny konto."""
+        """The existing service of the account, or empty for a new account."""
         self.registry = registry
         self.home = home
         self._run = run
         self._proc_root = Path(proc_root)
         self.reauth = (self.confdir / "refresh_token").exists()
-        """Kontoen har en ``refresh_token``. Login bruger ``--reauth``."""
+        """The account has a ``refresh_token``. The sign-in uses ``--reauth``."""
         self.auth = AuthSession(self.confdir, reauth=self.reauth, popen=popen, clock=clock,
                                 tmp_base=tmp_base, send_signal=send_signal)
         self.state = FlowState.STARTING
         self.service_error = ""
         self.service_stopped = False
-        """Flowet har stoppet servicen og har endnu ikke startet den igen."""
+        """The flow stopped the service and has not started it again yet."""
         self.service_was_active = False
-        """Servicen kørte, da brugeren klikkede "Log ind"."""
+        """The service ran when the user clicked "Sign in"."""
         self.cancel_requested = False
-        """Brugeren har klikket "Annullér". Flowet starter ikke klienten efter stoppet."""
+        """The user clicked "Cancel". The flow does not start the client after the stop."""
         self._error = ""
-        # cancel() kan komme fra hovedtråden, mens start() kører i en anden tråd.
+        # cancel() can come from the main thread while start() runs in a different thread.
         self._lock = threading.Lock()
         self._auth_started = False
 
@@ -99,7 +99,7 @@ class LoginFlow:
 
     @property
     def needs_restart(self) -> bool:
-        """Login fejlede eller blev afbrudt, og servicen skal startes igen."""
+        """The sign-in failed or was cancelled, and the service must start again."""
         return self.service_stopped and self.state in (FlowState.FAILED, FlowState.CANCELLED)
 
     def start(self) -> None:
@@ -108,7 +108,7 @@ class LoginFlow:
             return
         with self._lock:
             if self.cancel_requested:
-                log.info("Login for %s er annulleret, før klienten startede", self.confdir)
+                log.info("Sign-in for %s was cancelled before the client started", self.confdir)
                 self.state = FlowState.CANCELLED
                 return
             self._auth_started = True
@@ -116,13 +116,13 @@ class LoginFlow:
             self.poll()
 
     def _prepare_reauth(self) -> bool:
-        """Afvis fremmede processer, og stop servicen, hvis den kører."""
+        """Refuse other processes, and stop the service if it runs."""
         others = [p for p in find_processes(self.confdir, home=self.home, proc_root=self._proc_root)
                   if not self.service or p.unit != self.service]
         if others:
             lines = [f"PID {p.pid}: {' '.join(p.args)}" for p in others]
-            self._error = "\n".join(["En anden onedrive-proces bruger kontoen. Stop den først.", *lines])
-            log.warning("Login for %s: %s", self.confdir, self._error)
+            self._error = "\n".join(["Another onedrive process uses the account. Stop it first.", *lines])
+            log.warning("Sign-in for %s: %s", self.confdir, self._error)
             return False
         if not self.service:
             return True
@@ -133,13 +133,13 @@ class LoginFlow:
                 service_control.stop(self.service, run=self._run)
                 self.service_stopped = True
         except service_mod.SystemctlError as exc:
-            log.warning("Kan ikke stoppe %s før login: %s", self.service, exc)
-            self._error = f"Servicen {self.service} kunne ikke stoppes før login:\n{exc}"
+            log.warning("Cannot stop %s before sign-in: %s", self.service, exc)
+            self._error = f"Could not stop the service {self.service} before sign-in:\n{exc}"
             return False
         return True
 
     def restore_service(self) -> None:
-        """Start servicen igen, hvis flowet stoppede den. En fejl står i ``service_error``."""
+        """Start the service again if the flow stopped it. An error goes in ``service_error``."""
         if not self.service_stopped:
             return
         self.service_stopped = False
@@ -160,7 +160,7 @@ class LoginFlow:
         return handled
 
     def cancel(self) -> None:
-        """Afbryd login. Mens servicen stopper, afslutter ``start()`` flowet bagefter."""
+        """Cancel the sign-in. While the service stops, ``start()`` ends the flow after the stop."""
         with self._lock:
             if self.state not in (FlowState.STARTING, FlowState.WAITING_FOR_USER,
                                   FlowState.WAITING_FOR_TOKEN):
@@ -172,11 +172,11 @@ class LoginFlow:
             self.poll()
 
     def activate_service(self) -> None:
-        """Opret og start servicen, eller genstart den eksisterende.
+        """Create and start the service, or restart the existing one.
 
-        Gør intet, hvis kontoen ikke er logget ind. En fejl fra ``systemctl``
-        står i ``service_error``. Kontoen er stadig logget ind. Ved ``reauth``
-        starter flowet kun servicen igen, hvis den kørte før login.
+        Does nothing if the account is not signed in. An error from ``systemctl``
+        goes in ``service_error``. The account is still signed in. With ``reauth``
+        the flow starts the service again only if it ran before the sign-in.
         """
         if self.state is not FlowState.LOGGED_IN:
             return

@@ -1,7 +1,7 @@
 import QtQuick
 import Skyhus
 
-// En rund avatar med kontoens initialer og kontoens faste farve.
+// A round avatar with the initials and the fixed color of the account.
 Rectangle {
     id: avatar
     objectName: "avatar"

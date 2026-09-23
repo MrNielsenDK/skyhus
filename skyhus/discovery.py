@@ -1,4 +1,4 @@
-"""Find de OneDrive-konti, der allerede findes på maskinen."""
+"""Find the OneDrive accounts that are already on the machine."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def is_account_dir(path: Path) -> bool:
 
 
 def find_confdirs(home: Path | None = None) -> list[Path]:
-    """Mapperne ``~/.config/onedrive`` og ``~/.config/onedrive-*``, der er konti."""
+    """The folders ``~/.config/onedrive`` and ``~/.config/onedrive-*`` that are accounts."""
     base = config_home(home)
     try:
         entries = list(base.iterdir())
@@ -43,12 +43,12 @@ def find_confdirs(home: Path | None = None) -> list[Path]:
             continue
         if is_account_dir(path):
             found.append(path)
-    # ~/.config/onedrive først, derefter alfabetisk.
+    # ~/.config/onedrive first, then alphabetical.
     return sorted(found, key=lambda p: (p.name != DEFAULT_CONFDIR_NAME, p.name))
 
 
 def read_config_value(confdir: Path, key: str) -> str | None:
-    """Læs en værdi fra kontoens ``config``. Linjer med ``#`` tæller ikke."""
+    """Read a value from the ``config`` of the account. Lines with ``#`` do not count."""
     try:
         text = (Path(confdir) / "config").read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -90,7 +90,7 @@ def _confdirs_in_exec_start(value: str, home: Path) -> list[str]:
 
 
 def find_service(confdir: Path, home: Path | None = None) -> str:
-    """Navnet på den user-unit, der kører kontoen, eller tom."""
+    """The name of the user unit that runs the account, or empty."""
     confdir = Path(confdir)
     if confdir.name == DEFAULT_CONFDIR_NAME:
         return "onedrive.service"
@@ -106,7 +106,7 @@ def find_service(confdir: Path, home: Path | None = None) -> str:
         try:
             text = unit.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            log.warning("Kan ikke læse %s: %s", unit, exc)
+            log.warning("Cannot read %s: %s", unit, exc)
             continue
         for line in text.splitlines():
             line = line.strip()

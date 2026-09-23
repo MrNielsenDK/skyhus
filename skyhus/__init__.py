@@ -1,1 +1,1 @@
-"""Qt-brugerflade til flere OneDrive-konti med abraunegg/onedrive."""
+"""Qt user interface for multiple OneDrive accounts with abraunegg/onedrive."""

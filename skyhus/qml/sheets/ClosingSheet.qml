@@ -5,7 +5,7 @@ import QtQuick.Templates as T
 import Skyhus
 import "../components" as UI
 
-// Vinduet venter på handlinger, der stopper eller starter en service (feature 0008).
+// The window waits for actions that stop or start a service (feature 0008).
 UI.Sheet {
     id: sheet
     objectName: "closingSheet"
@@ -14,7 +14,7 @@ UI.Sheet {
 
     closePolicy: T.Popup.NoAutoClose
     visible: controller.closing && !warning.visible
-    title: "Applikationen lukker, når arbejdet er færdigt"
+    title: "Skyhus closes when the work is done"
 
     RowLayout {
         Layout.fillWidth: true
@@ -38,7 +38,7 @@ UI.Sheet {
     Text {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: "Vinduet lukker af sig selv, når handlingen er færdig."
+        text: "The window closes by itself when the action is done."
         font: Theme.caption
         color: Theme.textSecondary
     }
@@ -46,18 +46,18 @@ UI.Sheet {
     buttons: [
         UI.SecondaryButton {
             objectName: "forceCloseButton"
-            text: "Luk alligevel"
+            text: "Close anyway"
             onClicked: warning.open()
         }
     ]
 
-    // Advarslen, før vinduet lukker midt i en handling.
+    // The warning before the window closes during an action.
     UI.Sheet {
         id: warning
         objectName: "forceCloseWarning"
 
         closePolicy: T.Popup.NoAutoClose
-        title: "Luk alligevel?"
+        title: "Close anyway?"
 
         RowLayout {
             Layout.fillWidth: true
@@ -72,8 +72,8 @@ UI.Sheet {
                 objectName: "forceCloseWarningText"
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                text: "Servicen kan blive stående stoppet, hvis du lukker nu. "
-                      + "Start den igen i kortet \"Service\", næste gang du åbner applikationen."
+                text: "The service can stay stopped if you close now. "
+                      + "Start it again in the \"Service\" card the next time you open Skyhus."
                 font: Theme.body
                 color: Theme.textPrimary
             }
@@ -81,13 +81,13 @@ UI.Sheet {
 
         buttons: [
             UI.SecondaryButton {
-                text: "Vent"
+                text: "Wait"
                 onClicked: warning.close()
             },
             UI.SecondaryButton {
                 objectName: "forceCloseConfirmButton"
                 destructive: true
-                text: "Luk nu"
+                text: "Close now"
                 onClicked: sheet.controller.forceClose()
             }
         ]

@@ -1,4 +1,4 @@
-"""Applikationen hedder Skyhus (feature 0012)."""
+"""The application is called Skyhus (feature 0012)."""
 
 import re
 import tomllib
@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OLD_NAMES = re.compile(r"onedrive-gui|onedrive_gui|OneDriveGui", re.IGNORECASE)
 LEGACY_ENV_VAR = "ONEDRIVE_GUI_SAFE_MODE"
-# Den gamle miljøvariabel slår stadig sikker tilstand til.
+# The old environment variable still turns on safe mode.
 LEGACY_ALLOWED = {"skyhus/sideeffects.py", "tests/test_sideeffects.py", "tests/conftest.py"}
 
 
@@ -48,7 +48,7 @@ def test_window_title_is_skyhus():
     text = (ROOT / "skyhus" / "qml" / "Main.qml").read_text(encoding="utf-8")
 
     assert re.search(r'^\s*title: "Skyhus"$', text, re.MULTILINE)
-    assert 'title: "OneDrive-konti"' not in text
+    assert 'title: "OneDrive' not in text
 
 
 def test_application_display_name_is_skyhus():

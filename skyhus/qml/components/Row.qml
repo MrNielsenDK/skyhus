@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Layouts
 import Skyhus
 
-// En række i et kort: tekst til venstre, værdi eller knap til højre.
-// En tynd streg adskiller rækken fra rækken over den, undtagen når first er sat.
+// A row in a card: text on the left, a value or a button on the right.
+// A thin line separates the row from the row above it, except when first is set.
 Item {
     id: row
 

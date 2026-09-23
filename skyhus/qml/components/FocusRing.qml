@@ -1,7 +1,7 @@
 import QtQuick
 import Skyhus
 
-// Ringen om et fokuseret element: 3 px i accent med 50 % gennemsigtighed.
+// The ring around a focused item: 3 px in accent with 50 % opacity.
 Rectangle {
     property bool shown: false
     property real baseRadius: Theme.radiusControl

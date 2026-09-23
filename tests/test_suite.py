@@ -1,4 +1,4 @@
-"""Testsuiten selv: én fælles QGuiApplication (feature 0008)."""
+"""The test suite itself: one shared QGuiApplication (feature 0008)."""
 
 import re
 from pathlib import Path

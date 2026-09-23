@@ -5,9 +5,9 @@ import QtQuick.Templates as T
 import Skyhus
 import "../components" as UI
 
-// Arket "Ændrer mappevalg" med de 5 trin (feature 0009). Det erstatter spinneren i mappevælgeren.
-// Arket lukker, når trin 5 er færdigt. Fejler et trin, bliver arket stående, til brugeren klikker "Luk".
-// Under trin 2 kan brugeren klikke "Afbryd" (feature 0010). Så bliver arket stående med en besked.
+// The "Changing folder selection" sheet with the 5 steps (feature 0009). It replaces the spinner in the folder picker.
+// The sheet closes when step 5 is done. If a step fails, the sheet stays open until the user clicks "Close".
+// During step 2, the user can click "Stop" (feature 0010). Then the sheet stays open with a message.
 UI.Sheet {
     id: sheet
     objectName: "applyProgressSheet"
@@ -18,7 +18,7 @@ UI.Sheet {
 
     closePolicy: T.Popup.NoAutoClose
     visible: controller.applyState !== ""
-    title: "Ændrer mappevalg"
+    title: "Changing folder selection"
 
     UI.Card {
         Repeater {
@@ -54,7 +54,7 @@ UI.Sheet {
                     anchors.rightMargin: Theme.spacingM
                     spacing: Theme.spacingM
 
-                    // Tilstanden som et tegn: prik, spinner eller advarsel.
+                    // The state as a sign: dot, spinner or warning.
                     Item {
                         Layout.alignment: Qt.AlignTop
                         Layout.topMargin: Theme.hairline
@@ -132,7 +132,7 @@ UI.Sheet {
         Layout.fillWidth: true
         visible: !sheet.failed && !sheet.cancelled
         wrapMode: Text.Wrap
-        text: "Uploaden og resync kan tage lang tid for en stor konto."
+        text: "The upload and the resync can take a long time for a large account."
         font: Theme.caption
         color: Theme.textSecondary
     }
@@ -147,14 +147,14 @@ UI.Sheet {
             Layout.fillWidth: true
             visible: sheet.cancelled
             wrapMode: Text.Wrap
-            text: "Ændringen er afbrudt. Mappevalget er uændret."
+            text: "The change is stopped. The folder selection did not change."
             font: Theme.body
             color: Theme.textPrimary
         }
         Text {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: "Filer, som klienten nåede at uploade, bliver på OneDrive."
+            text: "Files that the client uploaded before the stop stay on OneDrive."
             font: Theme.caption
             color: Theme.textSecondary
         }
@@ -170,13 +170,13 @@ UI.Sheet {
             objectName: "applyCancelButton"
             visible: sheet.controller.applyCancellable || sheet.controller.applyCancelling
             enabled: !sheet.controller.applyCancelling
-            text: sheet.controller.applyCancelling ? "Afbryder …" : "Afbryd"
+            text: sheet.controller.applyCancelling ? "Stopping …" : "Stop"
             onClicked: sheet.controller.cancelApply()
         },
         UI.SecondaryButton {
             objectName: "applyProgressCloseButton"
             visible: sheet.failed || sheet.cancelled
-            text: "Luk"
+            text: "Close"
             onClicked: sheet.controller.closeApplyProgress()
         }
     ]

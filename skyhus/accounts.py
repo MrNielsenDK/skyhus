@@ -1,4 +1,4 @@
-"""Modellen for en OneDrive-konto og de faste stier, som resten bruger."""
+"""The model for a OneDrive account and the fixed paths that the other modules use."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ DEFAULT_SYNC_DIR = "~/OneDrive"
 @dataclass
 class Account:
     name: str
-    """Visningsnavnet, som brugeren selv vælger."""
+    """The display name that the user chooses."""
     confdir: Path
     sync_dir: str
-    """Værdien, som klienten bruger, fx ``~/OneDrive-Privat``."""
+    """The value that the client uses, for example ``~/OneDrive-Privat``."""
     service: str
-    """Navnet på kontoens systemd-user-unit, eller tom, hvis der ikke er en."""
+    """The name of the systemd user unit of the account, or empty if there is none."""
     logged_in: bool
 
     @property

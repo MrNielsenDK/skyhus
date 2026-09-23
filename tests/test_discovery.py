@@ -1,4 +1,4 @@
-"""Kontoopdagelse (feature 0001)."""
+"""Account discovery (feature 0001)."""
 
 from skyhus.discovery import (
     discover_accounts,
@@ -43,15 +43,15 @@ def test_skyhus_dir_is_not_an_account(home):
 
 
 def test_empty_dir_is_not_an_account(home):
-    (home / ".config" / "onedrive-tom").mkdir()
-    (home / ".config" / "onedrive-tom" / "andet").write_text("x")
+    (home / ".config" / "onedrive-empty").mkdir()
+    (home / ".config" / "onedrive-empty" / "other").write_text("x")
 
     assert discover_accounts(home) == []
 
 
 def test_unrelated_dirs_are_ignored(home):
     make_account_dir(home, "onedrivefoo", config="")
-    make_account_dir(home, "andet", config="")
+    make_account_dir(home, "other", config="")
 
     assert discover_accounts(home) == []
 
@@ -67,7 +67,7 @@ def test_unit_with_matching_confdir_is_the_service(home):
     confdir = make_account_dir(home, "onedrive-privat", config="")
     make_unit(home, "onedrive-privat.service",
               '/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-privat"')
-    make_unit(home, "andet.service", "/usr/bin/true")
+    make_unit(home, "other.service", "/usr/bin/true")
 
     assert find_service(confdir, home) == "onedrive-privat.service"
 
@@ -99,7 +99,7 @@ def test_confdir_without_unit_has_empty_service(home):
 
 def test_sync_dir_from_config(home):
     confdir = make_account_dir(home, "onedrive-privat",
-                               config='sync_dir = "~/OneDrive-Privat"\nskip_dir = "/Offentlig"\n')
+                               config='sync_dir = "~/OneDrive-Privat"\nskip_dir = "/Public"\n')
 
     assert read_sync_dir(confdir) == "~/OneDrive-Privat"
     assert discover_accounts(home)[0].sync_dir == "~/OneDrive-Privat"
@@ -113,11 +113,11 @@ def test_sync_dir_defaults_to_onedrive(home):
 
 def test_commented_config_lines_are_ignored(home):
     confdir = make_account_dir(home, "onedrive-x", config=(
-        '# sync_dir = "~/Forkert"\n'
-        '   # sync_dir = "~/OgsaaForkert"\n'
+        '# sync_dir = "~/Wrong"\n'
+        '   # sync_dir = "~/AlsoWrong"\n'
     ))
 
     assert read_sync_dir(confdir) == "~/OneDrive"
 
-    (confdir / "config").write_text('# sync_dir = "~/Forkert"\nsync_dir = "~/Rigtig"\n')
-    assert read_sync_dir(confdir) == "~/Rigtig"
+    (confdir / "config").write_text('# sync_dir = "~/Wrong"\nsync_dir = "~/Right"\n')
+    assert read_sync_dir(confdir) == "~/Right"

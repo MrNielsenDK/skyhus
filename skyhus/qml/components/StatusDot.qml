@@ -1,8 +1,8 @@
 import QtQuick
 import Skyhus
 
-// En statusprik. tone er navnet på et tema-token: "success", "warning", "danger"
-// eller "textSecondary". Feature 0004 kan sætte tone ud fra servicens tilstand.
+// A status dot. tone is the name of a theme token: "success", "warning", "danger"
+// or "textSecondary". Feature 0004 can set tone from the state of the service.
 Rectangle {
     id: dot
     objectName: "statusDot"

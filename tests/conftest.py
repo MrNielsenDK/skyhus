@@ -1,8 +1,8 @@
-"""Fælles fixtures. Testene kører med en midlertidig HOME og kalder aldrig
-den rigtige onedrive, systemctl eller Microsoft Graph.
+"""Shared fixtures. The tests run with a temporary HOME and never call
+the real onedrive, systemctl or Microsoft Graph.
 
-Sikker tilstand (feature 0007) er slået til i alle tests. Blokeringen af
-``subprocess`` og ``urlopen`` gælder stadig."""
+Safe mode (feature 0007) is on in all tests. The block on
+``subprocess`` and ``urlopen`` still applies."""
 
 import gc
 import os
@@ -15,10 +15,10 @@ import pytest
 
 @pytest.fixture(scope="session")
 def app():
-    """Én fælles QGuiApplication til alle tests (feature 0008).
+    """One shared QGuiApplication for all tests (feature 0008).
 
-    Qt tillader kun 1 application-objekt per proces. Opretter en test en
-    QCoreApplication først, crasher en senere test, der kræver QGuiApplication."""
+    Qt allows only 1 application object per process. If a test creates a
+    QCoreApplication first, a later test that needs QGuiApplication crashes."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QtGui = pytest.importorskip("PySide6.QtGui")
     return QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
@@ -26,23 +26,23 @@ def app():
 
 @pytest.fixture(autouse=True)
 def collect_qt_garbage():
-    """Ryd op efter testen i hovedtråden (feature 0008).
+    """Clean up after the test in the main thread (feature 0008).
 
-    En test efterlader ofte en AppController i en reference-cyklus. Python kan
-    rydde cyklussen op i en vilkårlig tråd, fx i en _Job-tråd fra en senere test.
-    Så kan en QTimer blive stående uden sit objekt, og Qt crasher med
-    "Segmentation fault" i en senere test."""
+    A test often leaves an AppController in a reference cycle. Python can
+    clean up the cycle in any thread, for example in a _Job thread from a later test.
+    Then a QTimer can stay without its object, and Qt crashes with
+    "Segmentation fault" in a later test."""
     yield
     gc.collect()
 
 
 @pytest.fixture(autouse=True)
 def safe_mode_on(monkeypatch):
-    """Slå sikker tilstand til, og vurdér den forfra i hver test."""
+    """Turn on safe mode, and check it again in each test."""
     from skyhus import sideeffects
 
     monkeypatch.setenv("SKYHUS_SAFE_MODE", "1")
-    # Den gamle variabel (feature 0012) må ikke holde sikker tilstand tændt i tests af normal tilstand.
+    # The old variable (feature 0012) must not keep safe mode on in tests of normal mode.
     monkeypatch.delenv("ONEDRIVE_GUI_SAFE_MODE", raising=False)
     sideeffects.reset()
     yield
@@ -51,10 +51,10 @@ def safe_mode_on(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_real_processes(monkeypatch):
-    """Stop testen, hvis koden prøver at starte en rigtig proces."""
+    """Stop the test if the code tries to start a real process."""
 
     def refuse(*args, **kwargs):
-        raise AssertionError(f"Testen prøvede at starte en rigtig proces: {args!r}")
+        raise AssertionError(f"The test tried to start a real process: {args!r}")
 
     monkeypatch.setattr(subprocess, "run", refuse)
     monkeypatch.setattr(subprocess, "Popen", refuse)
@@ -62,17 +62,17 @@ def no_real_processes(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_real_network(monkeypatch):
-    """Stop testen, hvis koden prøver at kalde en rigtig URL."""
+    """Stop the test if the code tries to call a real URL."""
 
     def refuse(*args, **kwargs):
-        raise AssertionError(f"Testen prøvede at kalde en rigtig URL: {args!r}")
+        raise AssertionError(f"The test tried to call a real URL: {args!r}")
 
     monkeypatch.setattr(urllib.request, "urlopen", refuse)
 
 
 @pytest.fixture
 def home(tmp_path, monkeypatch) -> Path:
-    """En tom, midlertidig HOME med ~/.config."""
+    """An empty, temporary HOME with ~/.config."""
     home = tmp_path / "home"
     (home / ".config").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
@@ -82,7 +82,7 @@ def home(tmp_path, monkeypatch) -> Path:
 
 def make_account_dir(home: Path, name: str, *, config: str | None = None,
                      refresh_token: bool = False, items: bool = False) -> Path:
-    """Opret en config-mappe under ~/.config med de valgte filer."""
+    """Create a config folder under ~/.config with the selected files."""
     confdir = home / ".config" / name
     confdir.mkdir(parents=True, exist_ok=True)
     if config is not None:
@@ -95,7 +95,7 @@ def make_account_dir(home: Path, name: str, *, config: str | None = None,
 
 
 def make_unit(home: Path, name: str, exec_start: str) -> Path:
-    """Skriv en user-unit i ~/.config/systemd/user/."""
+    """Write a user unit in ~/.config/systemd/user/."""
     unit_dir = home / ".config" / "systemd" / "user"
     unit_dir.mkdir(parents=True, exist_ok=True)
     path = unit_dir / name
@@ -104,7 +104,7 @@ def make_unit(home: Path, name: str, exec_start: str) -> Path:
 
 
 class RecordingRun:
-    """Erstatning for subprocess.run, der gemmer kaldene."""
+    """A replacement for subprocess.run that records the calls."""
 
     def __init__(self, fail_on: str | None = None, stderr: str = ""):
         self.calls: list[list[str]] = []

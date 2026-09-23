@@ -1,4 +1,4 @@
-"""Hele forløbet fra login til service (feature 0001)."""
+"""The full flow from sign-in to service (feature 0001)."""
 
 import pytest
 
@@ -31,7 +31,7 @@ def complete_login(flow, popen, confdir):
     popen.last.write_auth_url(AUTH_URL)
     flow.poll()
     assert flow.submit_redirect(CODE_URL)
-    (confdir / "refresh_token").write_text("ny")
+    (confdir / "refresh_token").write_text("new")
     popen.last.exit(0)
     assert flow.poll() is FlowState.LOGGED_IN
 
@@ -78,14 +78,14 @@ def test_existing_unit_with_same_name_is_not_overwritten(home, tmp_path, popen):
     confdir = make_account_dir(home, "onedrive-firma-2", config="")
     path = unit_dir(home) / "onedrive-firma-2.service"
     path.parent.mkdir(parents=True)
-    path.write_text("fremmed unit\n")
+    path.write_text("foreign unit\n")
     run = RecordingRun()
     flow = make_flow(home, tmp_path, popen, run, confdir)
 
     complete_login(flow, popen, confdir)
     flow.activate_service()
 
-    assert path.read_text() == "fremmed unit\n"
+    assert path.read_text() == "foreign unit\n"
     assert run.calls == []
     assert "onedrive-firma-2.service" in flow.service_error
 
@@ -112,10 +112,10 @@ def test_error_redirect_shows_message_and_no_service(home, tmp_path, popen):
     flow.poll()
 
     flow.submit_redirect("https://login.microsoftonline.com/common/oauth2/nativeclient"
-                         "?error=access_denied&error_description=Nej+tak")
+                         "?error=access_denied&error_description=No+thanks")
 
     assert flow.poll() is FlowState.FAILED
-    assert "Nej tak" in flow.error
+    assert "No thanks" in flow.error
     flow.activate_service()
     assert run.calls == []
     assert not unit_dir(home).exists()
@@ -151,24 +151,24 @@ def test_nonzero_exit_shows_error_and_no_service(home, tmp_path, popen):
     assert not unit_dir(home).exists()
 
 
-# Sikker tilstand (feature 0007)
+# Safe mode (feature 0007)
 
 def test_login_in_safe_mode_fails_without_starting_onedrive(home, tmp_path, monkeypatch):
     import subprocess
     started = []
     monkeypatch.setattr(subprocess, "Popen", lambda args, **kwargs: started.append(args))
     confdir = make_account_dir(home, "onedrive-firma-2", config='sync_dir = "~/X"\n')
-    # Flowet får ingen falsk popen. Det bruger standarden fra sideeffects.
+    # The flow gets no fake popen. It uses the default from sideeffects.
     flow = LoginFlow(confdir, "Firma 2", "", registry=Registry.for_home(home), home=home,
                      run=RecordingRun(), clock=FakeClock(), tmp_base=tmp_path)
     flow.start()
 
     assert flow.poll() is FlowState.FAILED
-    assert "Sikker tilstand: onedrive blev ikke startet" in flow.error
+    assert "Safe mode: onedrive was not started" in flow.error
     assert started == []
 
 
-# Log ind igen med --reauth (feature 0005)
+# Sign in again with --reauth (feature 0005)
 
 SERVICE = "onedrive-privat.service"
 
@@ -181,7 +181,7 @@ def show(active):
 
 
 class LoggingPopen(FakePopen):
-    """Skriver hvert start af klienten i den samme log som ``ScriptedRun``."""
+    """Writes each start of the client to the same log as ``ScriptedRun``."""
 
     def __init__(self, log):
         super().__init__()
@@ -210,12 +210,12 @@ def proc(tmp_path):
 def privat(home):
     confdir = make_account_dir(home, "onedrive-privat", config="")
     token = confdir / "refresh_token"
-    token.write_bytes(b"gammel-token")
+    token.write_bytes(b"old-token")
     token.chmod(0o600)
     return confdir
 
 
-def reauth_flow(home, tmp_path, proc, confdir, *, active="active", fail=(), stderr="fejl"):
+def reauth_flow(home, tmp_path, proc, confdir, *, active="active", fail=(), stderr="error"):
     log = []
     run = ScriptedRun(outputs={"show": show(active)}, fail=fail, stderr=stderr, log=log)
     popen = LoggingPopen(log)
@@ -271,7 +271,7 @@ def test_successful_reauth_restarts_service_and_keeps_new_token(home, tmp_path, 
         ["systemctl", "--user", "reset-failed", SERVICE],
         ["systemctl", "--user", "restart", SERVICE],
     ]
-    assert (privat / "refresh_token").read_text() == "ny"
+    assert (privat / "refresh_token").read_text() == "new"
     assert flow.service_stopped is False
 
 
@@ -284,7 +284,7 @@ def test_stopped_service_is_not_started_after_login(home, tmp_path, proc, privat
 
     assert flow.state is FlowState.DONE
     assert changing_calls(run) == []
-    assert (privat / "refresh_token").read_text() == "ny"
+    assert (privat / "refresh_token").read_text() == "new"
 
 
 def test_cancel_restores_token_and_restarts_service(home, tmp_path, proc, privat):
@@ -295,7 +295,7 @@ def test_cancel_restores_token_and_restarts_service(home, tmp_path, proc, privat
     flow.cancel()
     assert flow.poll() is FlowState.CANCELLED
     token = privat / "refresh_token"
-    assert token.read_bytes() == b"gammel-token"
+    assert token.read_bytes() == b"old-token"
     assert token.stat().st_mode & 0o777 == 0o600
     assert flow.needs_restart is True
 
@@ -315,7 +315,7 @@ def test_nonzero_exit_restores_token_and_restarts_service(home, tmp_path, proc, 
 
     popen.last.exit(2)
     assert flow.poll() is FlowState.FAILED
-    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert (privat / "refresh_token").read_bytes() == b"old-token"
     assert (privat / "refresh_token").stat().st_mode & 0o777 == 0o600
 
     flow.restore_service()
@@ -336,11 +336,11 @@ def test_failure_does_not_restart_a_service_that_was_stopped(home, tmp_path, pro
     flow.restore_service()
 
     assert changing_calls(run) == []
-    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert (privat / "refresh_token").read_bytes() == b"old-token"
 
 
 def test_foreign_process_blocks_login(home, tmp_path, proc, privat):
-    add_process(proc, 777, ["/usr/bin/onedrive", "--resync", f"--confdir={privat}"], "konsol.scope")
+    add_process(proc, 777, ["/usr/bin/onedrive", "--resync", f"--confdir={privat}"], "console.scope")
 
     flow, run, popen, log = reauth_flow(home, tmp_path, proc, privat)
 
@@ -349,7 +349,7 @@ def test_foreign_process_blocks_login(home, tmp_path, proc, privat):
     assert changing_calls(run) == []
     assert popen.processes == []
     assert flow.needs_restart is False
-    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert (privat / "refresh_token").read_bytes() == b"old-token"
 
 
 def test_process_inside_the_service_does_not_block_login(home, tmp_path, proc, privat):
@@ -369,7 +369,7 @@ def test_stop_failure_shows_error_and_does_not_start_client(home, tmp_path, proc
     assert flow.state is FlowState.FAILED
     assert "Access denied" in flow.error
     assert popen.processes == []
-    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert (privat / "refresh_token").read_bytes() == b"old-token"
 
 
 def test_restart_failure_after_login_shows_error_and_account_is_logged_in(home, tmp_path, proc, privat):
@@ -385,10 +385,10 @@ def test_restart_failure_after_login_shows_error_and_account_is_logged_in(home, 
     assert account.logged_in is True
 
 
-# Annullér under stop (feature 0008)
+# Cancel during stop (feature 0008)
 
-def stopping_flow(home, tmp_path, proc, confdir, *, fail=(), stderr="fejl"):
-    """Start flowet i en tråd. ``systemctl stop`` venter, indtil testen åbner for det."""
+def stopping_flow(home, tmp_path, proc, confdir, *, fail=(), stderr="error"):
+    """Start the flow in a thread. ``systemctl stop`` waits until the test releases it."""
     import threading
     reached, release = threading.Event(), threading.Event()
 
@@ -419,7 +419,7 @@ def test_cancel_while_the_service_stops_ends_as_cancelled_without_client(home, t
 
     assert flow.poll() is FlowState.CANCELLED
     assert popen.processes == []
-    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert (privat / "refresh_token").read_bytes() == b"old-token"
     assert flow.needs_restart is True
     flow.restore_service()
     assert changing_calls(run) == [

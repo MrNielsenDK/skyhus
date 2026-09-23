@@ -1,7 +1,7 @@
-"""Udfør en ændring af mappevalget (feature 0002).
+"""Carry out a change of the folder selection (feature 0002).
 
-Testene kalder ikke onedrive eller systemctl. ``ScriptedRun`` og
-``FakeUploadPopen`` optager kaldene, og papirkurven er en attrap.
+The tests do not call onedrive or systemctl. ``ScriptedRun`` and
+``FakeUploadPopen`` record the calls, and Trash is a fake.
 """
 
 import pytest
@@ -37,7 +37,7 @@ def make_account(home, *, synced=True, service=SERVICE, sync_list="/A/\n/B/\n"):
     root = home / "OneDrive-X"
     (root / "A").mkdir(parents=True)
     (root / "B").mkdir()
-    (root / "B" / "fil.txt").write_text("data")
+    (root / "B" / "file.txt").write_text("data")
     return Account("X", confdir, "~/OneDrive-X", service, True)
 
 
@@ -126,11 +126,11 @@ def test_account_without_items_only_writes_files(home, proc):
 def test_failed_upload_changes_nothing_and_starts_service_without_resync(home, proc):
     account = make_account(home)
     run = ScriptedRun(outputs={"cat": CAT})
-    popen = FakeUploadPopen(["ERROR: netværksfejl"], returncode=1)
+    popen = FakeUploadPopen(["ERROR: network failure"], returncode=1)
     moved = []
     change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
 
-    with pytest.raises(ApplyError, match="netværksfejl"):
+    with pytest.raises(ApplyError, match="network failure"):
         execute(change, home=home, run=run, popen=popen, trash=moved.append, proc_root=proc)
 
     assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
@@ -146,7 +146,7 @@ def test_other_onedrive_process_blocks_the_change(home, proc):
     p = proc / "4242"
     p.mkdir()
     (p / "cmdline").write_bytes(f"/usr/bin/onedrive\0--confdir={account.confdir}\0--resync\0".encode())
-    (p / "cgroup").write_text("0::/user.slice/user@1000.service/app.slice/konsol.scope\n")
+    (p / "cgroup").write_text("0::/user.slice/user@1000.service/app.slice/console.scope\n")
 
     with pytest.raises(ApplyError, match="4242"):
         prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
@@ -209,7 +209,7 @@ def test_only_adding_folders_removes_nothing(home, proc):
     assert change.removed == []
 
 
-# Feature 0006: papirkurven respekterer alle regler.
+# Feature 0006: Trash respects all rules.
 
 def test_unknown_rule_that_cannot_be_interpreted_stops_prepare(home, proc):
     account = make_account(home, sync_list="/*\n/A/\n/B/\n")
@@ -220,32 +220,32 @@ def test_unknown_rule_that_cannot_be_interpreted_stops_prepare(home, proc):
 
     assert (account.confdir / "sync_list").read_text() == "/*\n/A/\n/B/\n"
     assert run.calls == []
-    assert (home / "OneDrive-X" / "B" / "fil.txt").exists()
+    assert (home / "OneDrive-X" / "B" / "file.txt").exists()
 
 
 def test_prepare_uses_unknown_rules_and_config(home, proc):
-    account = make_account(home, sync_list="!/B/Lokal/*\n/A/\n/B/\n")
+    account = make_account(home, sync_list="!/B/Local/*\n/A/\n/B/\n")
     (account.confdir / "config").write_text('sync_dir = "~/OneDrive-X"\nskip_dotfiles = "true"\n')
     root = home / "OneDrive-X"
-    (root / "B" / "Lokal").mkdir()
-    (root / "B" / "Lokal" / "kun-lokal.txt").write_text("x")
+    (root / "B" / "Local").mkdir()
+    (root / "B" / "Local" / "only-local.txt").write_text("x")
     (root / "B" / ".env").write_text("x")
-    (root / "B" / "noter.tmp").write_text("x")
+    (root / "B" / "notes.tmp").write_text("x")
 
     change = prepare(account, sync_all=False, folders=["A"], root_files=False, home=home, proc_root=proc)
 
-    assert [r.path for r in change.removed] == [root / "B" / "fil.txt"]
+    assert [r.path for r in change.removed] == [root / "B" / "file.txt"]
 
 
-# Feature 0009: fremdrift for de 5 trin.
+# Feature 0009: progress for the 5 steps.
 
 UPLOAD_LINES = [
-    "Reading configuration file: /home/bruger/.config/onedrive-x/config",
+    "Reading configuration file: /home/user/.config/onedrive-x/config",
     "Configuration file successfully loaded",
     "Performing a database consistency and integrity check on locally stored data ..... ",
     "Scanning the local file system '~/OneDrive-X' for new data to upload ..... ",
     "New items to upload to Microsoft OneDrive: 3",
-    "Uploading new file: ./A/noter.md ... done",
+    "Uploading new file: ./A/notes.md ... done",
     "Uploading new file: ./A/budget.ods ... done",
     "Uploading new file: ./A/plan.txt ... done",
     "Sync with Microsoft OneDrive is complete",
@@ -253,7 +253,7 @@ UPLOAD_LINES = [
 
 
 class Steps:
-    """Optag kaldene til ``on_step``. ``states`` er den seneste tilstand for hvert trin."""
+    """Record the calls to ``on_step``. ``states`` is the latest state for each step."""
 
     def __init__(self):
         self.calls = []
@@ -269,7 +269,7 @@ class Steps:
         return result
 
     def changes(self):
-        """(trin, tilstand) uden gentagelser af den samme tilstand."""
+        """(step, state) without repeats of the same state."""
         found = []
         for step, state, _ in self.calls:
             if not found or found[-1] != (step, state):
@@ -305,15 +305,15 @@ def test_on_step_reports_all_five_steps_in_order(home, proc):
     ]
     assert list(apply.STEPS) == [1, 2, 3, 4, 5]
     assert [apply.STEPS[s] for s in apply.STEPS] == [
-        "Stopper servicen", "Uploader lokale ændringer", "Skriver de nye regler",
-        "Flytter til papirkurven", "Starter servicen med resync"]
+        "Stopping the service", "Uploading local changes", "Writing the new rules",
+        "Moving to Trash", "Starting the service with resync"]
 
 
 def test_upload_reports_the_files_from_stdout(home, proc):
     seen = []
 
     def on_line(line):
-        # Når klienten skriver næste linje, har on_step allerede fået den forrige.
+        # When the client writes the next line, on_step has already received the previous one.
         seen.append(line)
 
     steps, run, error = run_change(home, proc, popen=FakeUploadPopen(UPLOAD_LINES, on_line=on_line))
@@ -390,21 +390,21 @@ def test_upload_in_safe_mode_uses_sideeffects_popen_and_fails(home, proc, monkey
     assert used == [apply.upload_command(account.confdir)]
     assert steps.states[2] == apply.FAILED
     assert steps.states[3] == apply.WAITING
-    # conftest stopper testen, hvis subprocess.Popen bliver kaldt. onedrive startede altså ikke.
+    # conftest stops the test if subprocess.Popen is called. So onedrive did not start.
     assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
 
 
-# Feature 0010: afbryd upload.
+# Feature 0010: stop the upload.
 
 SIGTERM, SIGKILL = 15, 9
 CANCEL_LINES = [
     "New items to upload to Microsoft OneDrive: 3",
-    "Uploading new file: ./A/noter.md ... done",
+    "Uploading new file: ./A/notes.md ... done",
 ]
 
 
-def cancelling_popen(flag, *, stops_on=(SIGTERM,), exit_code=None, at="noter.md", lines=CANCEL_LINES):
-    """En upload, hvor brugeren klikker "Afbryd", når linjen med ``at`` kommer."""
+def cancelling_popen(flag, *, stops_on=(SIGTERM,), exit_code=None, at="notes.md", lines=CANCEL_LINES):
+    """An upload where the user clicks "Stop" when the line with ``at`` comes."""
 
     def on_line(line):
         if at in line:
@@ -455,7 +455,7 @@ def test_cancel_leaves_sync_list_and_trash_alone(home, proc):
 
     assert (account.confdir / "sync_list").read_text() == "/A/\n/B/\n"
     assert moved == []
-    assert (home / "OneDrive-X" / "B" / "fil.txt").exists()
+    assert (home / "OneDrive-X" / "B" / "file.txt").exists()
 
 
 def test_cancel_starts_a_running_service_again_without_resync(home, proc):

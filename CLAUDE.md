@@ -2,52 +2,54 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Projektet
+## The project
 
-`skyhus` er en Qt Quick-brugerflade (PySide6 + QML) til flere konti med klienten [abraunegg/onedrive](https://github.com/abraunegg/onedrive) (v2.5.x, `/usr/bin/onedrive`). Hver konto er én config-mappe (`~/.config/onedrive` eller `~/.config/onedrive-<slug>`) og én systemd-user-service. Brugerfladen og al dokumentation er på dansk.
+`skyhus` is a Qt Quick user interface (PySide6 + QML) for multiple accounts with the client [abraunegg/onedrive](https://github.com/abraunegg/onedrive) (v2.5.x, `/usr/bin/onedrive`). Each account is 1 config folder (`~/.config/onedrive` or `~/.config/onedrive-<slug>`) and 1 systemd user service. The user interface and all documentation are in English.
 
-## Kommandoer
+## Commands
 
-Afhængighederne er systempakker (ingen venv/pip): se `README.md` for `apt install`-linjen.
+The dependencies are system packages (no venv/pip): see `README.md` for the `apt install` line.
 
 ```bash
-python3 -m pytest                                   # hele suiten
-python3 -m pytest tests/test_rules.py -k dotfiles   # én fil / ét udvalg
-python3 -m skyhus.app --safe                  # start uden at ændre noget på systemet
-python3 -m skyhus.app                         # skarp tilstand – rammer de rigtige services
+python3 -m pytest                                   # the full suite
+python3 -m pytest tests/test_rules.py -k dotfiles   # 1 file / 1 selection
+python3 -m skyhus.app --safe                  # start without changes to the system
+python3 -m skyhus.app                         # live mode – uses the real services
 ```
 
-Der er ingen linter eller build-trin ud over setuptools. `python3 -m compileall -q skyhus` fanger syntaksfejl.
+There is no linter and no build step other than setuptools. `python3 -m compileall -q skyhus` finds syntax errors.
 
-Alle tests deler én `QGuiApplication` fra fixturen `app` (`scope="session"`) i `tests/conftest.py`. Ingen testfil må oprette sin egen (`tests/test_suite.py` håndhæver det). Den autouse-fixture `collect_qt_garbage` kører `gc.collect()` efter hver test. Uden den kan en QTimer fra en tidligere `AppController` ramme et objekt, der ikke findes længere, og så segfaulter suiten.
+All tests share 1 `QGuiApplication` from the fixture `app` (`scope="session"`) in `tests/conftest.py`. No test file can make its own (`tests/test_suite.py` enforces this). The autouse fixture `collect_qt_garbage` runs `gc.collect()` after each test. Without it, a QTimer from an earlier `AppController` can hit an object that no longer exists, and then the suite has a segfault.
 
-## Sikkerhed – vigtigst
+## Safety – most important
 
-Maskinen har brugerens rigtige OneDrive-konti (firma i `~/.config/onedrive` med `onedrive.service`, privat i `~/.config/onedrive-privat` med `onedrive-privat.service`).
+The machine has the real OneDrive accounts of the user (work in `~/.config/onedrive` with `onedrive.service`, private in `~/.config/onedrive-privat` with `onedrive-privat.service`).
 
-- `systemctl --user` rammer de rigtige units, **også når `HOME` er falsk**. En falsk HOME isolerer kun filer.
-- Kør aldrig `start/stop/restart/reset-failed/daemon-reload/enable` og skriv aldrig under `~/.config/systemd`, `~/.config/onedrive*` eller synkmapperne. Læsende `systemctl --user show` og `journalctl --user … -o json` er i orden.
-- Scripts uden for pytest (fx skærmbilleder) skal blokere `subprocess.run`/`Popen`/`urlopen` som `tests/conftest.py` gør, og køre med `SKYHUS_SAFE_MODE=1` eller `--safe`.
-- Mod rigtige konti må `onedrive` kun afprøves med en ny, midlertidig `--confdir` uden kopierede filer.
+- `systemctl --user` uses the real units, **also when `HOME` is fake**. A fake HOME isolates only files.
+- Never run `start/stop/restart/reset-failed/daemon-reload/enable`, and never write under `~/.config/systemd`, `~/.config/onedrive*` or the sync folders. Read-only `systemctl --user show` and `journalctl --user … -o json` are permitted.
+- Scripts outside pytest (for example screenshots) must block `subprocess.run`/`Popen`/`urlopen` as `tests/conftest.py` does, and run with `SKYHUS_SAFE_MODE=1` or `--safe`.
+- With real accounts, you can try `onedrive` only with a new, temporary `--confdir` without copied files.
 
-## Arkitektur
+## Architecture
 
-**Lag.** Rene Python-moduler i `skyhus/` indeholder al logik og kender ikke Qt (undtagen `theme.py` og `viewmodels.py`). `viewmodels.py` er det eneste bindingslag til QML: `AccountListModel`, `FolderTreeModel` og `AppController`, som `app.py` giver QML som initial property `controller`. QML kalder slots på `controller` og læser properties og roller. Der er ingen logik i QML.
+**Layers.** Pure Python modules in `skyhus/` contain all logic and do not know Qt (except `theme.py` and `viewmodels.py`). `viewmodels.py` is the only binding layer to QML: `AccountListModel`, `FolderTreeModel` and `AppController`, which `app.py` gives to QML as the initial property `controller`. QML calls slots on `controller` and reads properties and roles. There is no logic in QML.
 
-**Side-effekter går gennem `sideeffects.py`.** `run`, `popen`, `trash` og `guard_write(path)` er standarden overalt. I sikker tilstand blokerer modulet kommandoer, der ændrer noget, og skrivninger under den rigtige hjemmemappe. Sikker tilstand slår til med `--safe`, `SKYHUS_SAFE_MODE=1`, eller automatisk når `HOME` ikke er brugerens rigtige hjemmemappe. `tests/test_sideeffects.py` gennemgår kildekoden med AST og fejler, hvis et modul bruger `subprocess.*` eller `QFile.moveToTrash` direkte, eller skriver en fil uden `guard_write`. Nye moduler skal følge det. Hver funktion med side-effekter tager en valgfri `run=`/`popen=`/`opener=`, som testene injicerer. En injiceret funktion går foran sikker tilstand.
+**Side effects go through `sideeffects.py`.** `run`, `popen`, `trash` and `guard_write(path)` are the standard everywhere. In safe mode, the module blocks commands that change something, and writes under the real home folder. Safe mode is on with `--safe`, `SKYHUS_SAFE_MODE=1`, or automatically when `HOME` is not the real home folder of the user. `tests/test_sideeffects.py` examines the source code with AST and fails if a module uses `subprocess.*` or `QFile.moveToTrash` directly, or writes a file without `guard_write`. New modules must obey this. Each function with side effects takes an optional `run=`/`popen=`/`opener=`, which the tests inject. An injected function has priority over safe mode.
 
-**Tråde.** Blokerende arbejde (`systemctl` kan vente 90 s pga. `TimeoutStopSec`, `ExecStartPre` sover 15 s, Graph-kald, upload) kører i `_Job`-tråde i `viewmodels.py`. `QTimer`s poller `job.done` i hovedtråden og opdaterer modellerne. Tråde sender ikke Qt-signaler. Handlinger, der kan stoppe eller starte en service, registrerer sig i `_critical_jobs`. Så længe en af dem kører, holder `requestClose()` vinduet åbent og viser `ClosingSheet`.
+**Threads.** Blocking work (`systemctl` can wait 90 s because of `TimeoutStopSec`, `ExecStartPre` sleeps 15 s, Graph calls, upload) runs in `_Job` threads in `viewmodels.py`. `QTimer`s poll `job.done` in the main thread and update the models. Threads do not send Qt signals. Actions that can stop or start a service register in `_critical_jobs`. While one of them runs, `requestClose()` keeps the window open and shows `ClosingSheet`.
 
-**Konti.** Mapperne på disken afgør, hvilke konti der findes (`discovery.py`). `registry.py` (`~/.config/skyhus/accounts.json`) giver dem kun visningsnavn og service. En konto er logget ind, når `refresh_token` findes.
+**Accounts.** The folders on disk set which accounts exist (`discovery.py`). `registry.py` (`~/.config/skyhus/accounts.json`) only gives them a display name and a service. An account is signed in when `refresh_token` exists.
 
-**Login.** `auth.AuthSession` kører `onedrive --auth-files auth.url:response.url` (plus `--reauth` for en eksisterende konto, med backup/tilbagelægning af `refresh_token`). `LoginSheet.qml` fanger videresendelsen til `…/oauth2/nativeclient?code=…`. `login_flow.LoginFlow` har 2 trin: `poll()` til `LOGGED_IN`, derefter `activate_service()`. Imellem viser brugerfladen mappevælgeren for nye konti.
+**Sign-in.** `auth.AuthSession` runs `onedrive --auth-files auth.url:response.url` (plus `--reauth` for an existing account, with backup and restore of `refresh_token`). `LoginSheet.qml` catches the redirect to `…/oauth2/nativeclient?code=…`. `login_flow.LoginFlow` has 2 steps: `poll()` until `LOGGED_IN`, then `activate_service()`. Between the steps, the user interface shows the folder picker for new accounts.
 
-**Mappevalg.** `graph.py` henter mappetræet fra Microsoft Graph med kontoens `refresh_token` (og gemmer aldrig det nye token). `synclist.py` skriver kun regler af formen `/sti/` og bevarer alle andre linjer i `sync_list` uændret øverst. `apply.prepare()` ændrer intet. `apply.execute()` har en fast rækkefølge: stop service → upload (`--upload-only --no-remote-delete`) → skriv `sync_list` → papirkurv → genstart med `--resync`. Servicen skal stoppes først, ellers kan klienten sende den lokale sletning videre til OneDrive. `rules.RuleSet` tolker alle klientens regler (`sync_list`, `skip_dir`, `skip_file`, `skip_dotfiles`, `sync_root_files`). `removal.find_removed` lægger kun en sti i papirkurven, hvis de gamle regler inkluderede den, og de nye ikke gør. Er tolkningen i tvivl, skal koden vælge det sikre: hellere for lidt i papirkurven end for meget.
+**Folder selection.** `graph.py` gets the folder tree from Microsoft Graph with the `refresh_token` of the account (and never saves the new token). `synclist.py` writes only rules of the form `/path/` and keeps all other lines in `sync_list` unchanged at the top. `apply.prepare()` changes nothing. `apply.execute()` has a fixed order: stop service → upload (`--upload-only --no-remote-delete`) → write `sync_list` → Trash → restart with `--resync`. The service must stop first. If not, the client can send the local delete to OneDrive. `rules.RuleSet` interprets all rules of the client (`sync_list`, `skip_dir`, `skip_file`, `skip_dotfiles`, `sync_root_files`). `removal.find_removed` moves a path to the Trash only if the old rules included it and the new rules do not. If the interpretation is not certain, the code must choose the safe result: too little in the Trash is better than too much.
 
-**Services.** `service.py` skriver nye units efter formen på `onedrive-privat.service` (inkl. `OnFailure=onedrive-failure@%N.service`, `RestartPreventExitStatus=126`) og overskriver aldrig en eksisterende. `service_control.py`: start/genstart er altid `reset-failed` + `restart`. Resync sker via en midlertidig drop-in `<service>.d/zz-skyhus-resync.conf`, som kopierer `ExecStart` og tilføjer `--resync --resync-auth`. Drop-in'en fjernes igen efter genstarten. `service_state.py` henter alle units med ét `systemctl show`-kald og vælger tilstand i en fast prioritet. Exit-kode 126 betyder "Kræver resync". `process.py` finder `onedrive`-processer uden for servicen via `/proc` og cgroup. Handlinger afvises, når sådan en proces kører.
+**Services.** `service.py` writes new units in the form of `onedrive-privat.service` (incl. `OnFailure=onedrive-failure@%N.service`, `RestartPreventExitStatus=126`) and never overwrites an existing unit. `service_control.py`: start/restart is always `reset-failed` + `restart`. Resync uses a temporary drop-in `<service>.d/zz-skyhus-resync.conf`, which copies `ExecStart` and adds `--resync --resync-auth`. The drop-in is removed again after the restart. `service_state.py` gets all units with 1 `systemctl show` call and selects the state in a fixed priority. Exit code 126 means "Needs resync". `process.py` finds `onedrive` processes outside the service through `/proc` and cgroup. Actions are refused when such a process runs.
 
-**Design.** Alle farver, størrelser og tider ligger som tokens i QML-singletonen `Theme` (`import Skyhus 1.0`, `theme.py`). Temaet følger systemets lyse/mørke tema live. QML må ikke indeholde `#RRGGBB` eller navngivne farver; tests håndhæver det og tjekker WCAG-kontrast for tokens. Genbrug komponenterne i `qml/components/` og præsentér dialoger som `Sheet`. Ikoner er Lucide-SVG i `assets/icons/` via `image://icon/<navn>/<rrggbb>`. Skriften Inter ligger i `assets/fonts/`.
+**Design.** All colors, sizes and times are tokens in the QML singleton `Theme` (`import Skyhus 1.0`, `theme.py`). The theme follows the light/dark theme of the system live. QML must not contain `#RRGGBB` or named colors; tests enforce this and check the WCAG contrast of the tokens. Use the components in `qml/components/` again, and show dialogs as `Sheet`. Icons are Lucide SVG in `assets/icons/` through `image://icon/<name>/<rrggbb>`. The font Inter is in `assets/fonts/`.
 
-## Arbejdsgang
+## Workflow
 
-Ingen kode uden et feature-dokument. Hver ændring, også bugfixes, bliver beskrevet i `docs/features/NNNN-kort-navn.md` med skillen `vaas-agenter:feature-workflow`, før der skrives kode. Brugeren dikterer features og siger selv til, når der skal bygges. Feature-dokumenter og `CHANGELOG.md` skrives på dansk efter ASD-STE100-reglerne i skillen. Implementering sker typisk med agenten `vaas-agenter:implementer` med stien til dokumentet. Den skriver tests først, bumper `version` i `pyproject.toml` (eneste versionskilde, SemVer) og tilføjer en linje i `CHANGELOG.md` (Keep a Changelog). Status i dokumentet går fra `planlagt` til `udviklet`.
+The project language is English. This applies to the user interface, code, comments, documentation and commit messages. The only Danish text in the code is the Danish input for `naming.slugify` (see `tests/test_language.py`).
+
+No code without a feature document. Each change, also bug fixes, is described in `docs/features/NNNN-short-name.md` with the skill `vaas-agenter:feature-workflow` before you write code. The user dictates features and tells you when to build. Feature documents and `CHANGELOG.md` are written in English with the ASD-STE100 rules in the skill. The feature documents 0001–0013 stay in Danish as history. Implementation usually uses the agent `vaas-agenter:implementer` with the path to the document. The agent writes tests first, bumps `version` in `pyproject.toml` (the only version source, SemVer) and adds a line in `CHANGELOG.md` (Keep a Changelog). The status in the document goes from `planned` to `developed`.

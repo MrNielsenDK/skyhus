@@ -1,184 +1,184 @@
 # Skyhus
 
-Skyhus er et Qt-vindue til flere OneDrive-konti på den samme maskine.
-Applikationen bruger klienten [abraunegg/onedrive](https://github.com/abraunegg/onedrive).
-Hver konto har sin egen config-mappe og sin egen systemd-user-service.
+Skyhus is a Qt window for multiple OneDrive accounts on the same machine.
+Skyhus uses the client [abraunegg/onedrive](https://github.com/abraunegg/onedrive).
+Each account has its own config folder and its own systemd user service.
 
-Applikationen kan:
+Skyhus can:
 
-- vise alle konti i `~/.config/onedrive` og `~/.config/onedrive-*`,
-- vise, om hver konto er logget ind,
-- give hver konto et visningsnavn,
-- tilføje en ny konto med login i et indbygget browservindue,
-- logge en eksisterende konto ind igen med `--reauth`,
-- vælge, hvilke mapper på OneDrive hver konto synkroniserer,
-- vise tilstanden for hver kontos service og starte eller genstarte den,
-- vise fremdriften under upload, papirkurv og `--resync`.
+- show all accounts in `~/.config/onedrive` and `~/.config/onedrive-*`,
+- show if each account is signed in,
+- give each account a display name,
+- add a new account with sign-in in a built-in browser window,
+- sign in an existing account again with `--reauth`,
+- choose which folders on OneDrive each account syncs,
+- show the state of the service for each account and start or restart it,
+- show the progress during upload, move to Trash and `--resync`.
 
-## Tilføj en konto
+## Add an account
 
-Klik "Tilføj konto", og skriv et visningsnavn og en synkmappe.
-Applikationen opretter config-mappen og åbner Microsofts login-side.
-Når du er logget ind, viser applikationen mappevælgeren.
-Applikationen opretter og starter servicen, når du klikker "OK" i mappevælgeren.
-Lukker du mappevælgeren uden at vælge, er kontoen logget ind, men servicen er ikke oprettet.
+Click "Add account". Type a display name and a sync folder.
+Skyhus makes the config folder and opens the Microsoft sign-in page.
+When you are signed in, Skyhus shows the folder picker.
+Skyhus makes and starts the service when you click "OK" in the folder picker.
+If you close the folder picker and do not choose, the account is signed in, but Skyhus does not make the service.
 
-## Log ind igen
+## Sign in again
 
-Klik "Log ind" på en konto, der allerede er logget ind. Applikationen logger så ind med `--reauth`.
+Click "Sign in" on an account that is already signed in. Skyhus then signs in with `--reauth`.
 
-- Kører kontoens service, stopper applikationen den før login. Login-arket viser "Servicen er stoppet, mens du logger ind".
-- Når login er færdigt, starter applikationen servicen igen. Den starter kun servicen, hvis den kørte før login.
-- Fejler login, eller klikker du "Annullér", lægger applikationen den gamle `refresh_token` tilbage og starter servicen igen.
-- Du kan klikke "Annullér", mens servicen stopper. Knappen viser så "Annullerer …". Applikationen starter ikke `onedrive`, når stoppet er færdigt.
-- Kører en anden `onedrive`-proces med kontoen, afviser applikationen login.
+- If the service of the account is running, Skyhus stops it before the sign-in. The sign-in sheet shows "The service is stopped while you sign in".
+- When the sign-in is complete, Skyhus starts the service again. It starts the service only if the service was running before the sign-in.
+- If the sign-in fails, or if you click "Cancel", Skyhus puts back the old `refresh_token` and starts the service again.
+- You can click "Cancel" while the service stops. The button then shows "Cancelling …". Skyhus does not start `onedrive` when the service has stopped.
+- If a different `onedrive` process uses the account, Skyhus does not start the sign-in.
 
-## Vælg mapper
+## Choose folders
 
-Klik "Vælg mapper …" på en konto. Mappevælgeren henter mapperne fra OneDrive med kontoens login.
+Click "Choose folders …" on an account. The folder picker gets the folders from OneDrive with the sign-in of the account.
 
-- Vælg "Synkroniser alle mapper", eller sæt flueben ved de mapper, kontoen skal synkronisere.
-- "Synkroniser filer i roden" bestemmer, om klienten også synkroniserer filerne øverst på OneDrive.
-- En mappe, der står i `skip_dir`, er ikke tilgængelig.
-- Applikationen skriver valget i `sync_list`. Andre linjer i filen bevarer den uændret.
+- Select "Sync all folders", or select the folders that the account must sync.
+- "Sync files in the root" sets if the client also syncs the files at the top level of OneDrive.
+- You cannot select a folder that is in `skip_dir`.
+- Skyhus writes the selection to `sync_list`. Skyhus keeps all other lines in the file as they are.
 
-Fjerner du en mappe fra valget, flytter applikationen den lokale kopi til papirkurven. OneDrive beholder mappen.
-Før det viser applikationen en liste over de lokale mapper og filer og deres samlede størrelse.
-Du bekræfter med "Flyt til papirkurven" eller fortryder med "Annullér".
+If you remove a folder from the selection, Skyhus moves the local copy to the Trash. OneDrive keeps the folder.
+Before this, Skyhus shows a list of the local folders and files and their total size.
+Click "Move to Trash" to confirm, or click "Cancel" to stop.
 
-Når du gemmer et nyt mappevalg for en konto, der har synkroniseret før, gør applikationen dette i denne rækkefølge:
+When you save a new folder selection for an account that synced before, Skyhus does these steps in this order:
 
-1. Den stopper kontoens service.
-2. Den uploader lokale ændringer med `--upload-only --no-remote-delete`.
-3. Den skriver `sync_list`.
-4. Den flytter de fjernede mapper til papirkurven.
-5. Den genstarter servicen 1 gang med `--resync`. Det kan tage lang tid for en stor konto.
+1. It stops the service of the account.
+2. It uploads local changes with `--upload-only --no-remote-delete`.
+3. It writes `sync_list`.
+4. It moves the removed folders to the Trash.
+5. It restarts the service 1 time with `--resync`. This can take a long time for a large account.
 
-Arket "Ændrer mappevalg" viser de 5 trin. Hvert trin står som "Venter", "I gang", "Færdigt" eller "Fejlet".
-Under uploaden viser arket antallet af uploadede filer og den seneste fil. Under papirkurven viser det antallet af flyttede stier.
-Arket lukker, når servicen er startet med `--resync`. Fejler et trin, bliver arket stående, til du klikker "Luk".
+The sheet "Changing folder selection" shows the 5 steps. Each step shows "Waiting", "Running", "Done" or "Failed".
+During the upload, the sheet shows the number of uploaded files and the last file. During the move to Trash, it shows the number of moved paths.
+The sheet closes when the service has started with `--resync`. If a step fails, the sheet stays open until you click "Close".
 
-Under trin 2 har arket knappen "Afbryd". Et klik stopper uploaden, og applikationen ændrer derefter intet.
-Den skriver ikke `sync_list` og flytter intet til papirkurven. Kørte servicen før, starter den igen uden `--resync`.
-Arket viser "Ændringen er afbrudt. Mappevalget er uændret." Filer, som klienten nåede at uploade, bliver på OneDrive.
-Efter trin 2 kan du ikke afbryde.
+During step 2, the sheet has the button "Stop". A click stops the upload. Then Skyhus does not change anything.
+It does not write `sync_list` and does not move anything to the Trash. If the service was running before, it starts again without `--resync`.
+The sheet shows "The change is stopped. The folder selection did not change." Files that the client uploaded before the stop stay on OneDrive.
+After step 2, you cannot stop the change.
 
-## Kortet "Service"
+## The "Service" card
 
-Kortet "Service" på hver konto viser servicens tilstand og tidspunktet for den. Applikationen læser tilstanden hvert 3. sekund, mens vinduet er synligt.
-Prikken ved kontoen i sidebjælken har den samme farve som tilstanden.
+The "Service" card on each account shows the state of the service and the time when the state started. Skyhus reads the state every 3 seconds while the window is visible.
+The dot next to the account in the sidebar has the same color as the state.
 
-| Tilstand | Knap |
+| State | Button |
 | --- | --- |
-| Kører | "Genstart" stopper klienten og starter den igen. |
-| Starter | "Genstart" |
-| Stopper | Ingen knap |
-| Stoppet | "Start" starter klienten. |
-| Fejlet | "Start" nulstiller fejlen og starter klienten. Kortet viser den sidste fejl fra loggen. |
-| Kræver resync | "Genstart med resync" genstarter servicen 1 gang med `--resync --resync-auth`. Du skal bekræfte det først. |
-| Resynkroniserer | "Afbryd resync" stopper servicen. Du skal bekræfte det først. Kortet viser fasen, en bjælke, den seneste fil og tiden siden start. |
-| Resync afbrudt | "Genstart med resync". Applikationen starter ikke servicen uden `--resync`, fordi klientens database kan være ufuldstændig. |
-| Kører uden for servicen | Ingen knap. En anden `onedrive`-proces bruger kontoen. |
-| Ikke logget ind | Ingen knap |
-| Ingen service | Ingen knap |
+| Running | "Restart" stops the client and starts it again. |
+| Starting | "Restart" |
+| Stopping | No button |
+| Stopped | "Start" starts the client. |
+| Failed | "Start" resets the failure and starts the client. The card shows the last error from the log. |
+| Needs resync | "Restart with resync" restarts the service 1 time with `--resync --resync-auth`. You must confirm it first. |
+| Resyncing | "Stop resync" stops the service. You must confirm it first. The card shows the phase, a progress bar, the last file and the time since the start. |
+| Resync stopped | "Restart with resync". Skyhus does not start the service without `--resync`, because the database of the client can be incomplete. |
+| Running outside the service | No button. A different `onedrive` process uses the account. |
+| Not signed in | No button |
+| No service | No button |
 
-Under "Resynkroniserer" læser applikationen servicens journal hvert 2. sekund, mens vinduet er synligt.
-Tilstanden gælder, når servicens hovedproces har `--resync`, og klienten endnu ikke har skrevet, at synkroniseringen er færdig.
-Bjælken viser antallet af filer, når klienten har skrevet det samlede antal. Ellers glider bjælken frem og tilbage.
-Når klienten er færdig, viser kortet "Resync er færdig" eller "Resync er færdig med fejl" og antallet af fejlede elementer.
-Lukker du applikationen og åbner den igen, læser den hele journalen for servicens kørsel og viser den samme fremdrift.
+During "Resyncing", Skyhus reads the journal of the service every 2 seconds while the window is visible.
+The state applies when the main process of the service has `--resync` and the client has not yet written that the sync is complete.
+The progress bar shows the number of files when the client has written the total number. If not, the progress bar moves from side to side.
+When the client is done, the card shows "Resync complete" or "Resync complete with errors" and the number of failed items.
+If you close Skyhus and open it again, Skyhus reads the full journal for the current run of the service and shows the same progress.
 
-Efter et klik venter applikationen i op til 120 sekunder på, at servicen kører eller fejler.
-Falder servicen ikke til ro, viser kortet "Servicen svarer ikke.".
-Kan `systemctl` ikke udføre handlingen, viser kortet beskeden fra `systemctl`.
+After a click, Skyhus waits for up to 120 seconds until the service runs or fails.
+If the service does not become stable, the card shows "The service does not respond.".
+If `systemctl` cannot do the action, the card shows the message from `systemctl`.
 
-## Installér afhængighederne
+## Install the dependencies
 
-Applikationen bruger system-pakkerne fra Ubuntu/Debian:
+Skyhus uses the system packages from Ubuntu/Debian:
 
 ```bash
 sudo apt install onedrive python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 \
     python3-pyside6.qtwebenginequick python3-pyside6.qtsvg python3-pytest
 ```
 
-Login-vinduet kræver `python3-pyside6.qtwebenginequick`.
-Uden pakken starter applikationen, men login-vinduet viser en fejl.
+The sign-in window needs `python3-pyside6.qtwebenginequick`.
+Without this package, Skyhus starts, but the sign-in window shows an error.
 
-## Start applikationen
+## Start Skyhus
 
-Kør denne kommando fra projektets rod:
+Run this command from the root of the project:
 
 ```bash
 python3 -m skyhus.app
 ```
 
-## Installér
+## Install
 
-Kør denne kommando fra projektets rod:
+Run this command from the root of the project:
 
 ```bash
 python3 -m skyhus.install
 ```
 
-Kommandoen lægger Skyhus i programmenuen og installerer kommandoen `skyhus`. Den skriver 3 filer:
+The command adds Skyhus to the program menu and installs the command `skyhus`. It writes 3 files:
 
-- `~/.local/bin/skyhus` starter Skyhus fra projektmappen,
-- `~/.local/share/applications/skyhus.desktop` viser Skyhus i programmenuen,
-- `~/.local/share/icons/hicolor/scalable/apps/skyhus.svg` er ikonet.
+- `~/.local/bin/skyhus` starts Skyhus from the project folder,
+- `~/.local/share/applications/skyhus.desktop` shows Skyhus in the program menu,
+- `~/.local/share/icons/hicolor/scalable/apps/skyhus.svg` is the icon.
 
-Installationen bruger systemets PySide6 og ikke pip.
-Findes en af filerne allerede, og har Skyhus ikke skrevet den, stopper installationen uden at ændre noget.
+The installation uses the PySide6 of the system. It does not use pip.
+If one of the files already exists, and Skyhus did not write it, the installation stops and does not change anything.
 
-Flytter du projektmappen, skal du køre `python3 -m skyhus.install` igen.
+If you move the project folder, run `python3 -m skyhus.install` again.
 
-Fjern Skyhus fra programmenuen med denne kommando:
+To remove Skyhus from the program menu, run this command:
 
 ```bash
 python3 -m skyhus.install --uninstall
 ```
 
-Kommandoen fjerner kun de 3 filer. Dine konti, services, synkmapper og `~/.config/skyhus/` bliver liggende.
+The command removes only the 3 files. Your accounts, services, sync folders and `~/.config/skyhus/` stay.
 
-## Sikker tilstand
+## Safe mode
 
-I sikker tilstand ændrer applikationen intet på systemet.
-Brugerfladen og alle forløb virker stadig, så du kan afprøve dem og tage skærmbilleder.
-Øverst i vinduet står et banner: "Sikker tilstand – applikationen ændrer ikke noget på systemet".
+In safe mode, Skyhus does not change anything on the system.
+The user interface and all flows still work. You can try them and take screenshots.
+At the top of the window, a banner shows "Safe mode – Skyhus does not change anything on the system".
 
-Start applikationen i sikker tilstand med denne kommando:
+To start Skyhus in safe mode, run this command:
 
 ```bash
 python3 -m skyhus.app --safe
 ```
 
-Sikker tilstand er også slået til i disse 2 tilfælde:
+Safe mode is also on in these 2 cases:
 
-- Miljøvariablen `SKYHUS_SAFE_MODE` er `1`.
-- `HOME` er en anden mappe end din rigtige hjemmemappe. Du kan ikke slå sikker tilstand fra i det tilfælde.
+- The environment variable `SKYHUS_SAFE_MODE` is `1`.
+- `HOME` is a different folder than your real home folder. In this case, you cannot turn off safe mode.
 
-I sikker tilstand gælder disse regler:
+In safe mode, these rules apply:
 
-- `systemctl --user show`, `cat`, `status` og `is-active` kører som normalt. Det gør `journalctl` også.
-- Alle andre `systemctl`-kommandoer kører ikke. Applikationen svarer, at de lykkedes.
-- Applikationen starter ikke `onedrive`. Et login ender med fejlen "Sikker tilstand: onedrive blev ikke startet".
-- Applikationen flytter ingen filer til papirkurven.
-- Applikationen skriver ingen filer under din rigtige hjemmemappe. Undtagelsen er `~/.config/skyhus/`.
-- Kald til Microsoft Graph kører som normalt. Kaldene læser kun.
+- `systemctl --user show`, `cat`, `status` and `is-active` run as usual. `journalctl` also runs as usual.
+- All other `systemctl` commands do not run. Skyhus reports that they were successful.
+- Skyhus does not start `onedrive`. A sign-in ends with the error "Safe mode: onedrive was not started".
+- Skyhus does not move files to the Trash.
+- Skyhus does not write files under your real home folder. The exception is `~/.config/skyhus/`.
+- Calls to Microsoft Graph run as usual. The calls only read.
 
-Hver blokeret handling giver en linje i loggen, der starter med `SAFE MODE:`.
+Each blocked action writes a line to the log. The line starts with `SAFE MODE:`.
 
-## Kør testene
+## Run the tests
 
 ```bash
 python3 -m pytest
 ```
 
-Testene bruger en midlertidig `HOME` og sikker tilstand. De kalder ikke den rigtige `onedrive` eller `systemctl`.
-Testen af `LoginSheet.qml` springer over, hvis QtWebEngine mangler.
+The tests use a temporary `HOME` and safe mode. They do not call the real `onedrive` or `systemctl`.
+The test of `LoginSheet.qml` is skipped if QtWebEngine is not installed.
 
-## Filer
+## Files
 
-- `~/.config/skyhus/accounts.json` gemmer visningsnavnene.
-- `~/.config/skyhus/state.json` husker de services, hvor du har afbrudt en resync.
-- `~/.config/onedrive-<slug>/config` er config-filen for en ny konto.
-- `~/.config/systemd/user/onedrive-<slug>.service` er servicen for en ny konto.
+- `~/.config/skyhus/accounts.json` keeps the display names.
+- `~/.config/skyhus/state.json` keeps the services where you stopped a resync.
+- `~/.config/onedrive-<slug>/config` is the config file for a new account.
+- `~/.config/systemd/user/onedrive-<slug>.service` is the service for a new account.

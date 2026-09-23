@@ -5,7 +5,7 @@ import QtQuick.Templates as T
 import Skyhus
 import "../components" as UI
 
-// Mappevælgeren. Træet viser mapperne på OneDrive med afkrydsningsfelter i 3 tilstande.
+// The folder picker. The tree shows the folders on OneDrive with check boxes in 3 states.
 UI.Sheet {
     id: sheet
     objectName: "folderPicker"
@@ -18,12 +18,12 @@ UI.Sheet {
     height: parent.height - Theme.spacingXL
     closePolicy: T.Popup.NoAutoClose
     visible: visibleStates.indexOf(controller.pickerState) >= 0
-    title: "Vælg mapper: " + controller.pickerAccountName
+    title: "Choose folders: " + controller.pickerAccountName
 
     UI.Card {
         UI.Row {
             first: true
-            text: "Synkroniser alle mapper"
+            text: "Sync all folders"
 
             UI.Toggle {
                 objectName: "syncAllBox"
@@ -33,7 +33,7 @@ UI.Sheet {
             }
         }
         UI.Row {
-            text: "Synkroniser filer i roden"
+            text: "Sync files in the root"
 
             UI.Toggle {
                 objectName: "syncRootFilesBox"
@@ -61,8 +61,8 @@ UI.Sheet {
             font: Theme.caption
             color: Theme.textSecondary
             text: sheet.controller.syncAll
-                  ? "sync_list indeholder regler, som mappevælgeren ikke viser. \"Synkroniser alle mapper\" fjerner sync_list og også de regler."
-                  : "sync_list indeholder regler, som mappevælgeren ikke viser. Applikationen beholder dem."
+                  ? "sync_list contains rules that the folder picker does not show. \"Sync all folders\" removes sync_list and also those rules."
+                  : "sync_list contains rules that the folder picker does not show. Skyhus keeps them."
         }
     }
 
@@ -138,7 +138,7 @@ UI.Sheet {
                         tristate: true
                         checkState: row.checkState
                         enabled: row.available
-                        // Controlleren bestemmer den nye tilstand. Modellen sender den tilbage.
+                        // The controller decides the new state. The model sends it back.
                         nextCheckState: function() { return row.checkState }
                         onClicked: sheet.controller.toggleFolder(row.index)
                     }
@@ -151,7 +151,7 @@ UI.Sheet {
                         elide: Text.ElideRight
                         font: Theme.body
                         color: row.available ? Theme.textPrimary : Theme.textSecondary
-                        text: row.available ? row.name : row.name + " (ikke tilgængelig, står i skip_dir)"
+                        text: row.available ? row.name : row.name + " (not available, listed in skip_dir)"
                     }
                     BusyIndicator {
                         Layout.preferredWidth: Theme.iconMedium
@@ -165,7 +165,7 @@ UI.Sheet {
         }
     }
 
-    // Under en ændring af en konto, der har synkroniseret før, viser ApplyProgressSheet trinnene i stedet.
+    // During a change of an account that has synced before, ApplyProgressSheet shows the steps instead.
     RowLayout {
         Layout.fillWidth: true
         visible: sheet.busy && sheet.controller.applyState === ""
@@ -184,9 +184,9 @@ UI.Sheet {
             color: Theme.textSecondary
             text: {
                 switch (sheet.controller.pickerState) {
-                case "loading": return "Henter mapperne fra OneDrive …"
-                case "checking": return "Finder de lokale mapper, der forsvinder …"
-                case "applying": return "Uploader lokale ændringer og gemmer valget. Det kan tage lang tid."
+                case "loading": return "Getting the folders from OneDrive …"
+                case "checking": return "Finding the local folders that go away …"
+                case "applying": return "Uploading local changes and saving the selection. This can take a long time."
                 default: return ""
                 }
             }
@@ -200,7 +200,7 @@ UI.Sheet {
 
     buttons: [
         UI.SecondaryButton {
-            text: "Annullér"
+            text: "Cancel"
             enabled: sheet.controller.pickerState === "open" || sheet.controller.pickerState === "loading"
             onClicked: sheet.controller.closePicker()
         },

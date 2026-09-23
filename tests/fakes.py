@@ -1,10 +1,10 @@
-"""Attrapper for onedrive-processen og uret."""
+"""Fakes for the onedrive process and the clock."""
 
 from pathlib import Path
 
 
 class FakeProcess:
-    """Svarer til en Popen-proces. Testen spiller selv klientens rolle."""
+    """The same as a Popen process. The test itself plays the role of the client."""
 
     def __init__(self, args, **kwargs):
         self.args = list(args)
@@ -16,11 +16,11 @@ class FakeProcess:
         self.auth_url_path = Path(auth)
         self.response_path = Path(response)
         if "--reauth" in self.args:
-            # Som onedrive 2.5: --reauth sletter refresh_token, før klienten beder om login.
+            # As onedrive 2.5: --reauth deletes refresh_token before the client asks for a sign-in.
             confdir = next(a.split("=", 1)[1] for a in self.args if a.startswith("--confdir="))
             (Path(confdir) / "refresh_token").unlink(missing_ok=True)
 
-    # Popen-grænsefladen
+    # The Popen interface
     def poll(self):
         return self.returncode
 
@@ -35,7 +35,7 @@ class FakeProcess:
             self.returncode = -9
 
     def receive(self, sig):
-        """Et signal fra ``FakeSignals``."""
+        """A signal from ``FakeSignals``."""
         import signal
         if sig == signal.SIGKILL:
             self.kill()
@@ -45,7 +45,7 @@ class FakeProcess:
     def wait(self, timeout=None):
         return self.returncode
 
-    # Klientens handlinger
+    # The actions of the client
     def write_auth_url(self, url):
         self.auth_url_path.write_text(url + "\n")
 
@@ -82,10 +82,10 @@ class FakeClock:
 
 
 class FakeGraph:
-    """Erstatning for ``urllib.request.urlopen`` med optagne svar fra Microsoft.
+    """A replacement for ``urllib.request.urlopen`` with recorded responses from Microsoft.
 
-    ``pages`` bruger den fulde URL eller kun stien som nøgle. Et svar er et
-    ``dict``, der bliver til JSON, eller en ``Exception``, som kaldet kaster.
+    ``pages`` uses the full URL or only the path as key. A response is a
+    ``dict`` that becomes JSON, or an ``Exception`` that the call raises.
     """
 
     TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -95,7 +95,7 @@ class FakeGraph:
         self._json = json
         self.pages = dict(pages or {})
         self.token = token if token is not None else {
-            "access_token": "adgang", "refresh_token": "NYT", "expires_in": 3600}
+            "access_token": "access", "refresh_token": "NEW", "expires_in": 3600}
         self.requests = []
 
     def __call__(self, request, timeout=None):
@@ -110,7 +110,7 @@ class FakeGraph:
         else:
             answer = self.pages.get(urlsplit(url).path)
         if answer is None:
-            raise AssertionError(f"Intet optaget svar for {url}")
+            raise AssertionError(f"No recorded response for {url}")
         if isinstance(answer, Exception):
             raise answer
         return io.BytesIO(self._json.dumps(answer).encode())
@@ -120,7 +120,7 @@ class FakeGraph:
 
 
 def http_error(url, code, body):
-    """En ``HTTPError`` med et JSON-svar, som Microsoft sender det."""
+    """An ``HTTPError`` with a JSON body, as Microsoft sends it."""
     import io
     import json
     from email.message import Message
@@ -137,14 +137,14 @@ def file_item(name):
 
 
 class ScriptedRun:
-    """Erstatning for subprocess.run. Kaldene står i ``calls`` og i ``log``.
+    """A replacement for subprocess.run. The calls are in ``calls`` and in ``log``.
 
-    ``outputs`` giver stdout for et kald, fx ``{"cat": "..."}``. ``fail``
-    giver exit-kode 1 for et kald, hvis ordet findes i kommandoen.
-    ``on_call`` kaldes med kommandoen, før svaret, så testen kan se tilstanden.
+    ``outputs`` gives stdout for a call, for example ``{"cat": "..."}``. ``fail``
+    gives exit code 1 for a call if the word is in the command.
+    ``on_call`` is called with the command before the response, so the test can see the state.
     """
 
-    def __init__(self, outputs=None, fail=(), stderr="fejl", log=None, on_call=None):
+    def __init__(self, outputs=None, fail=(), stderr="error", log=None, on_call=None):
         import subprocess
         self._cp = subprocess.CompletedProcess
         self.outputs = dict(outputs or {})
@@ -169,10 +169,10 @@ class ScriptedRun:
 
 
 class FakeUploadProcess:
-    """Svarer til ``onedrive --upload-only`` startet med ``Popen(stdout=PIPE, text=True)``.
+    """The same as ``onedrive --upload-only`` started with ``Popen(stdout=PIPE, text=True)``.
 
-    ``lines`` er klientens stdout. ``returncode`` er exit-koden, når stdout er læst.
-    ``on_line`` kaldes før hver linje, så testen kan se tilstanden undervejs.
+    ``lines`` is the stdout of the client. ``returncode`` is the exit code when stdout is read.
+    ``on_line`` is called before each line, so the test can see the state while it runs.
     """
 
     def __init__(self, args, lines, returncode, on_line=None, **kwargs):
@@ -209,9 +209,9 @@ class FakeUploadProcess:
 
 
 class FakeUploadPopen:
-    """Erstatning for ``sideeffects.popen`` til uploaden i ``apply.execute``.
+    """A replacement for ``sideeffects.popen`` for the upload in ``apply.execute``.
 
-    Kaldene står i ``calls`` og i ``log``, så testen kan se rækkefølgen sammen med ``ScriptedRun``.
+    The calls are in ``calls`` and in ``log``, so the test can see the sequence together with ``ScriptedRun``.
     """
 
     def __init__(self, lines=(), returncode=0, log=None, on_line=None):
@@ -231,10 +231,10 @@ class FakeUploadPopen:
 
 
 class FakeStoppableUpload:
-    """Svarer til ``onedrive --upload-only``, der kører, til den får et signal (feature 0010).
+    """The same as ``onedrive --upload-only`` that runs until it gets a signal (feature 0010).
 
-    Processen skriver ``lines`` og venter derefter. Et signal i ``stops_on`` stopper den.
-    Exit-koden er ``exit_code`` eller ``-signal``. ``signals`` er de signaler, processen fik.
+    The process writes ``lines`` and then waits. A signal in ``stops_on`` stops it.
+    The exit code is ``exit_code`` or ``-signal``. ``signals`` are the signals that the process got.
     """
 
     def __init__(self, args, lines, stops_on, exit_code=None, on_line=None, **kwargs):
@@ -256,7 +256,7 @@ class FakeStoppableUpload:
             if self._on_line is not None:
                 self._on_line(line)
             yield line + "\n"
-        # Sikkerhedsnet: en fejlet test må ikke hænge.
+        # Safety net: a failed test must not hang.
         if not self._stopped.wait(10) and self.returncode is None:
             self.returncode = 1
 
@@ -276,7 +276,7 @@ class FakeStoppableUpload:
 
 
 class FakeStoppablePopen:
-    """Erstatning for ``sideeffects.popen`` med ``FakeStoppableUpload``. ``processes`` er de startede."""
+    """A replacement for ``sideeffects.popen`` with ``FakeStoppableUpload``. ``processes`` are the started ones."""
 
     def __init__(self, lines=(), stops_on=(15,), exit_code=None, on_line=None):
         self.lines = list(lines)
@@ -292,7 +292,7 @@ class FakeStoppablePopen:
 
 
 class FakeSignals:
-    """Erstatning for ``sideeffects.signal_process``. ``sent`` er (signal, tidspunkt) for hvert kald."""
+    """A replacement for ``sideeffects.signal_process``. ``sent`` is (signal, time) for each call."""
 
     def __init__(self, clock=None):
         self.clock = clock
@@ -310,7 +310,7 @@ class FakeSignals:
 
 
 class SteppingClock:
-    """Et falsk ur. ``sleep`` flytter uret frem uden at vente."""
+    """A fake clock. ``sleep`` moves the clock forward without waiting."""
 
     def __init__(self, now=1000.0):
         import threading

@@ -1,4 +1,4 @@
-"""Start applikationen: ``python3 -m skyhus.app`` eller ``skyhus``."""
+"""Start the application: ``python3 -m skyhus.app`` or ``skyhus``."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from . import sideeffects
-from . import theme  # noqa: F401 - registrerer singletonen Theme i QML
+from . import theme  # noqa: F401 - registers the Theme singleton in QML
 from .viewmodels import AppController
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -25,12 +25,12 @@ log = logging.getLogger(__name__)
 
 
 def load_fonts() -> None:
-    """Indlæs Inter fra ``assets/fonts``. Et kald mere gør ingenting."""
+    """Load Inter from ``assets/fonts``. A second call does nothing."""
     if theme.FONT_FAMILY in QFontDatabase.families():
         return
     for name in FONT_FILES:
         if QFontDatabase.addApplicationFont(str(ASSETS_DIR / "fonts" / name)) < 0:
-            log.warning("Kan ikke indlæse skriften %s", name)
+            log.warning("Cannot load the font %s", name)
 
 
 def use_default_font(app: QGuiApplication) -> None:
@@ -40,9 +40,9 @@ def use_default_font(app: QGuiApplication) -> None:
 
 
 class IconProvider(QQuickImageProvider):
-    """Tegn et Lucide-ikon i en farve: ``image://icon/<navn>/<rrggbb>``.
+    """Draw a Lucide icon in a color: ``image://icon/<name>/<rrggbb>``.
 
-    Ikonerne bruger ``currentColor``. Farven kommer fra teksten ved siden af ikonet.
+    The icons use ``currentColor``. The color comes from the text next to the icon.
     """
 
     def __init__(self):
@@ -58,7 +58,7 @@ class IconProvider(QQuickImageProvider):
             svg = (ASSETS_DIR / "icons" / f"{name}.svg").read_text()
             self._svgs[name] = svg
         tint = QColor("#" + color) if color else QColor(Qt.black)
-        # SVG kender ikke #AARRGGBB. Gennemsigtigheden kommer på bagefter.
+        # SVG does not know #AARRGGBB. The opacity is applied afterwards.
         data = svg.replace("currentColor", tint.name(QColor.HexRgb))
         width = requested.width() if requested.width() > 0 else DEFAULT_ICON_SIZE
         height = requested.height() if requested.height() > 0 else DEFAULT_ICON_SIZE
@@ -73,11 +73,11 @@ class IconProvider(QQuickImageProvider):
 
 
 def init_webengine() -> bool:
-    """Klargør QtWebEngine. Det skal ske, før ``QGuiApplication`` findes."""
+    """Prepare QtWebEngine. This must occur before ``QGuiApplication`` exists."""
     try:
         from PySide6.QtWebEngineQuick import QtWebEngineQuick
     except ImportError:
-        log.warning("PySide6.QtWebEngineQuick mangler. Login-vinduet virker ikke.")
+        log.warning("PySide6.QtWebEngineQuick is missing. The sign-in window does not work.")
         return False
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     QtWebEngineQuick.initialize()
@@ -92,18 +92,18 @@ def load_main(engine: QQmlApplicationEngine, controller: AppController) -> None:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    # Sikker tilstand ligger fast herfra. --safe er en af betingelserne.
+    # Safe mode is fixed from here. --safe is one of the conditions.
     sideeffects.init(sys.argv)
     init_webengine()
     app = QGuiApplication(sys.argv)
     app.setApplicationName("skyhus")
     app.setApplicationDisplayName("Skyhus")
-    # På Wayland finder panelet ikonet via skyhus.desktop (feature 0013).
+    # On Wayland, the panel finds the icon through skyhus.desktop (feature 0013).
     app.setDesktopFileName("skyhus")
     app.setWindowIcon(QIcon(str(ASSETS_DIR / "skyhus.svg")))
     load_fonts()
     use_default_font(app)
-    # Kontrollerne tegner selv designet. Stilen "Basic" holder KDE's stil ude.
+    # The controls draw the design themselves. The "Basic" style keeps the KDE style out.
     QQuickStyle.setStyle("Basic")
 
     controller = AppController()
@@ -113,7 +113,7 @@ def main() -> int:
         return 1
     code = app.exec()
     controller.shutdown()
-    # Vinduet skal forsvinde før controlleren, som QML binder til.
+    # The window must go before the controller that QML binds to.
     del engine
     return code
 

@@ -4,7 +4,7 @@ import QtQuick.Templates as T
 import Skyhus
 import "../components" as UI
 
-// Bekræftelsen, før applikationen genstarter en service med --resync.
+// The confirmation before the application restarts a service with --resync.
 UI.Sheet {
     id: sheet
     objectName: "confirmResync"
@@ -13,32 +13,32 @@ UI.Sheet {
 
     closePolicy: T.Popup.NoAutoClose
     visible: controller.resyncAccountName !== ""
-    title: "Genstart med resync"
+    title: "Restart with resync"
 
     Text {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: "Klienten sammenligner hele kontoen \"" + sheet.controller.resyncAccountName
-              + "\" med OneDrive igen. Det kan tage lang tid for en stor konto."
+        text: "The client compares all of the account \"" + sheet.controller.resyncAccountName
+              + "\" with OneDrive again. This can take a long time for a large account."
         font: Theme.body
         color: Theme.textPrimary
     }
     Text {
         Layout.fillWidth: true
         wrapMode: Text.Wrap
-        text: "Applikationen genstarter servicen 1 gang med --resync --resync-auth. Derefter kører servicen som før."
+        text: "Skyhus restarts the service 1 time with --resync --resync-auth. After that, the service runs as before."
         font: Theme.caption
         color: Theme.textSecondary
     }
 
     buttons: [
         UI.SecondaryButton {
-            text: "Annullér"
+            text: "Cancel"
             onClicked: sheet.controller.cancelResync()
         },
         UI.PrimaryButton {
             objectName: "confirmResyncButton"
-            text: "Genstart med resync"
+            text: "Restart with resync"
             onClicked: sheet.controller.confirmResync()
         }
     ]

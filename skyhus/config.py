@@ -1,7 +1,7 @@
-"""Læs og skriv enkelte værdier i kontoens ``config``.
+"""Read and write single values in the ``config`` of the account.
 
-Applikationen ændrer kun den værdi, den skal ændre. Alle andre linjer og
-kommentarer bliver stående uændret.
+The application changes only the value that it must change. All other lines and
+comments stay the same.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from .discovery import _CONFIG_LINE, read_config_value
 log = logging.getLogger(__name__)
 
 DEFAULT_SKIP_FILE = "~*|.~*|*.tmp|*.swp|*.partial"
-"""Klientens standardværdi for ``skip_file``."""
+"""The default value of the client for ``skip_file``."""
 
 
 def _is_true(value: str | None) -> bool:
@@ -24,7 +24,7 @@ def _is_true(value: str | None) -> bool:
 
 
 def read_config_values(confdir: Path, key: str) -> list[str]:
-    """Alle værdier for ``key`` i rækkefølge. Linjer med ``#`` tæller ikke."""
+    """All values for ``key`` in sequence. Lines with ``#`` do not count."""
     try:
         text = (Path(confdir) / "config").read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
@@ -44,7 +44,7 @@ def read_sync_root_files(confdir: Path) -> bool:
 
 
 def read_skip_dirs(confdir: Path) -> list[str]:
-    """Mønstrene fra alle ``skip_dir``-linjer. ``|`` skiller mønstrene ad."""
+    """The patterns from all ``skip_dir`` lines. ``|`` separates the patterns."""
     patterns = []
     for value in read_config_values(confdir, "skip_dir"):
         patterns.extend(p.strip() for p in value.split("|") if p.strip())
@@ -56,10 +56,10 @@ def read_skip_dir_strict(confdir: Path) -> bool:
 
 
 def read_skip_files(confdir: Path) -> list[str]:
-    """Mønstrene fra alle ``skip_file``-linjer. ``|`` skiller mønstrene ad.
+    """The patterns from all ``skip_file`` lines. ``|`` separates the patterns.
 
-    Findes ingen linje, gælder klientens standardværdi. En linje erstatter
-    standardværdien, som i klienten.
+    If there is no line, the default value of the client applies. A line replaces
+    the default value, as in the client.
     """
     values = read_config_values(confdir, "skip_file")
     if not values:
@@ -75,7 +75,7 @@ def read_skip_dotfiles(confdir: Path) -> bool:
 
 
 def write_sync_root_files(confdir: Path, value: bool) -> None:
-    """Sæt ``sync_root_files``. Findes linjen, ændrer applikationen den på stedet."""
+    """Set ``sync_root_files``. If the line exists, the application changes it in place."""
     path = Path(confdir) / "config"
     try:
         text = path.read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ def write_sync_root_files(confdir: Path, value: bool) -> None:
             found = True
     if not found:
         if not value:
-            # Standardværdien er false. Filen skal ikke ændre sig.
+            # The default value is false. The file must not change.
             return
         if lines and not lines[-1].endswith("\n"):
             lines[-1] += "\n"
@@ -109,4 +109,4 @@ def write_sync_root_files(confdir: Path, value: bool) -> None:
     if path.exists():
         os.chmod(tmp, path.stat().st_mode & 0o777)
     os.replace(tmp, path)
-    log.info("Satte %s i %s", new_line, path)
+    log.info("Set %s in %s", new_line, path)

@@ -1,4 +1,4 @@
-"""Lokale stier, der forsvinder, når valget ændrer sig (feature 0002)."""
+"""Local paths that disappear when the selection changes (feature 0002)."""
 
 import pytest
 
@@ -10,7 +10,7 @@ ALL = Rules(None, False)
 
 @pytest.fixture
 def sync(home):
-    """~/OneDrive-X med mapperne A, B og C og 2 filer i roden."""
+    """~/OneDrive-X with the folders A, B and C and 2 files in the root."""
     root = home / "OneDrive-X"
     for folder in ("A/B", "A/C", "B", "C"):
         (root / folder).mkdir(parents=True)
@@ -18,8 +18,8 @@ def sync(home):
     (root / "A" / "B" / "i-b.txt").write_text("1")
     (root / "A" / "C" / "i-c.txt").write_text("123")
     (root / "B" / "i-b.txt").write_text("12")
-    (root / "rod.txt").write_text("r")
-    (root / "rod2.txt").write_text("r")
+    (root / "root.txt").write_text("r")
+    (root / "root2.txt").write_text("r")
     return root
 
 
@@ -42,7 +42,7 @@ def test_narrowing_a_to_a_b_removes_siblings_and_files_in_a(sync):
 def test_from_all_folders_to_a_removes_other_root_items(sync):
     removed = find_removed(sync, ALL, Rules(["A"], False))
 
-    assert names(removed, sync) == ["B", "C", "rod.txt", "rod2.txt"]
+    assert names(removed, sync) == ["B", "C", "root.txt", "root2.txt"]
 
 
 def test_from_all_folders_to_a_with_root_files_keeps_root_files(sync):
@@ -54,7 +54,7 @@ def test_from_all_folders_to_a_with_root_files_keeps_root_files(sync):
 def test_turning_root_files_off_removes_root_files_only(sync):
     removed = find_removed(sync, Rules(["A", "B"], True), Rules(["A", "B"], False))
 
-    assert names(removed, sync) == ["rod.txt", "rod2.txt"]
+    assert names(removed, sync) == ["root.txt", "root2.txt"]
 
 
 def test_skip_dir_never_disappears(sync):
@@ -78,7 +78,7 @@ def test_only_adding_folders_removes_nothing(sync):
 
 
 def test_folder_that_was_not_synced_is_left_alone(sync):
-    (sync / "Lokal").mkdir()
+    (sync / "Local").mkdir()
 
     removed = find_removed(sync, Rules(["A", "B"], False), Rules(["A"], False))
 
@@ -88,137 +88,137 @@ def test_folder_that_was_not_synced_is_left_alone(sync):
 def test_total_size_counts_files_in_folders(sync):
     removed = find_removed(sync, ALL, Rules(["C"], False))
 
-    assert names(removed, sync) == ["A", "B", "rod.txt", "rod2.txt"]
+    assert names(removed, sync) == ["A", "B", "root.txt", "root2.txt"]
     assert total_size(removed) == 5 + 1 + 3 + 2 + 1 + 1
 
 
 def test_format_size():
     assert format_size(0) == "0 B"
-    assert format_size(1536) == "1,5 kB"
-    assert format_size(5 * 1024 * 1024) == "5,0 MB"
+    assert format_size(1536) == "1.5 kB"
+    assert format_size(5 * 1024 * 1024) == "5.0 MB"
 
 
-# Feature 0006: papirkurven respekterer alle regler.
+# Feature 0006: Trash respects all rules.
 
 
 @pytest.fixture
 def work(home):
-    """~/OneDrive-X med mappen Arbejde og mappen Andet."""
+    """~/OneDrive-X with the folder Work and the folder Other."""
     root = home / "OneDrive-X"
-    for folder in ("Arbejde/Hemmelig", "Arbejde/Projekt", "Andet"):
+    for folder in ("Work/Secret", "Work/Project", "Other"):
         (root / folder).mkdir(parents=True)
-    (root / "Arbejde" / "plan.txt").write_text("plan")
-    (root / "Arbejde" / "Hemmelig" / "lokal.txt").write_text("kun lokalt")
-    (root / "Arbejde" / "Projekt" / "kode.py").write_text("print()")
+    (root / "Work" / "plan.txt").write_text("plan")
+    (root / "Work" / "Secret" / "local.txt").write_text("only local")
+    (root / "Work" / "Project" / "code.py").write_text("print()")
     return root
 
 
 def test_excluded_folder_in_deselected_folder_stays(work):
-    unknown = ["!/Arbejde/Hemmelig/*"]
-    old = RuleSet(["Andet", "Arbejde"], False, unknown)
-    new = RuleSet(["Andet"], False, unknown)
+    unknown = ["!/Work/Secret/*"]
+    old = RuleSet(["Other", "Work"], False, unknown)
+    new = RuleSet(["Other"], False, unknown)
 
     removed = find_removed(work, old, new)
 
-    assert names(removed, work) == ["Arbejde/Projekt", "Arbejde/plan.txt"]
+    assert names(removed, work) == ["Work/Project", "Work/plan.txt"]
 
 
 def test_folder_with_excluded_path_is_not_removed_itself(work):
-    unknown = ["!/Arbejde/Hemmelig/*"]
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False, unknown),
-                           RuleSet(["Andet"], False, unknown))
+    unknown = ["!/Work/Secret/*"]
+    removed = find_removed(work, RuleSet(["Other", "Work"], False, unknown),
+                           RuleSet(["Other"], False, unknown))
 
-    assert "Arbejde" not in names(removed, work)
-    assert (work / "Arbejde") not in [r.path for r in removed]
+    assert "Work" not in names(removed, work)
+    assert (work / "Work") not in [r.path for r in removed]
 
 
 def test_anywhere_rule_keeps_matching_folder(work):
-    (work / "Arbejde" / "Documents").mkdir()
-    (work / "Arbejde" / "Documents" / "brev.txt").write_text("brev")
+    (work / "Work" / "Documents").mkdir()
+    (work / "Work" / "Documents" / "letter.txt").write_text("letter")
     unknown = ["Documents/"]
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False, unknown),
-                           RuleSet(["Andet"], False, unknown))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False, unknown),
+                           RuleSet(["Other"], False, unknown))
 
-    assert not any(n.startswith("Arbejde/Documents") for n in names(removed, work))
-    assert "Arbejde/plan.txt" in names(removed, work)
+    assert not any(n.startswith("Work/Documents") for n in names(removed, work))
+    assert "Work/plan.txt" in names(removed, work)
 
 
 def test_default_skip_file_keeps_tmp_file(work):
-    (work / "Arbejde" / "noter.tmp").write_text("tmp")
+    (work / "Work" / "notes.tmp").write_text("tmp")
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False),
-                           RuleSet(["Andet"], False))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False),
+                           RuleSet(["Other"], False))
 
-    assert "Arbejde/noter.tmp" not in names(removed, work)
-    assert "Arbejde" not in names(removed, work)
-    assert "Arbejde/plan.txt" in names(removed, work)
+    assert "Work/notes.tmp" not in names(removed, work)
+    assert "Work" not in names(removed, work)
+    assert "Work/plan.txt" in names(removed, work)
 
 
 def test_skip_dotfiles_true_keeps_dotfile(work):
-    (work / "Arbejde" / ".env").write_text("HEMMELIG=1")
+    (work / "Work" / ".env").write_text("SECRET=1")
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False, skip_dotfiles=True),
-                           RuleSet(["Andet"], False, skip_dotfiles=True))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False, skip_dotfiles=True),
+                           RuleSet(["Other"], False, skip_dotfiles=True))
 
-    assert "Arbejde/.env" not in names(removed, work)
-    assert "Arbejde" not in names(removed, work)
+    assert "Work/.env" not in names(removed, work)
+    assert "Work" not in names(removed, work)
 
 
 def test_skip_dotfiles_false_removes_dotfile(work):
-    (work / "Arbejde" / ".env").write_text("HEMMELIG=1")
-    (work / "Arbejde" / "Hemmelig" / "lokal.txt").unlink()
+    (work / "Work" / ".env").write_text("SECRET=1")
+    (work / "Work" / "Secret" / "local.txt").unlink()
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False, skip_dotfiles=False),
-                           RuleSet(["Andet"], False, skip_dotfiles=False))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False, skip_dotfiles=False),
+                           RuleSet(["Other"], False, skip_dotfiles=False))
 
-    # Arbejde har ingen udelukkede stier. Hele mappen står på listen.
-    assert names(removed, work) == ["Arbejde"]
-    assert (work / "Arbejde" / ".env").exists()
+    # Work has no excluded paths. The whole folder is on the list.
+    assert names(removed, work) == ["Work"]
+    assert (work / "Work" / ".env").exists()
 
 
 def test_deselected_folder_without_excluded_paths_is_listed_alone(work):
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False), RuleSet(["Andet"], False))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False), RuleSet(["Other"], False))
 
-    assert names(removed, work) == ["Arbejde"]
+    assert names(removed, work) == ["Work"]
 
 
 def test_symlink_in_deselected_folder_is_never_listed(work, tmp_path):
-    target = tmp_path / "udenfor.txt"
-    target.write_text("uden for OneDrive")
-    (work / "Arbejde" / "genvej").symlink_to(target)
+    target = tmp_path / "outside.txt"
+    target.write_text("outside OneDrive")
+    (work / "Work" / "shortcut").symlink_to(target)
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False), RuleSet(["Andet"], False))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False), RuleSet(["Other"], False))
 
-    assert "Arbejde/genvej" not in names(removed, work)
-    assert "Arbejde" not in names(removed, work)
-    assert "Arbejde/plan.txt" in names(removed, work)
+    assert "Work/shortcut" not in names(removed, work)
+    assert "Work" not in names(removed, work)
+    assert "Work/plan.txt" in names(removed, work)
 
 
 def test_folder_with_nosync_is_never_listed(work):
-    (work / "Arbejde" / "Projekt" / ".nosync").write_text("")
+    (work / "Work" / "Project" / ".nosync").write_text("")
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False), RuleSet(["Andet"], False))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False), RuleSet(["Other"], False))
 
-    assert not any(n.startswith("Arbejde/Projekt") for n in names(removed, work))
-    assert "Arbejde" not in names(removed, work)
-    assert "Arbejde/plan.txt" in names(removed, work)
+    assert not any(n.startswith("Work/Project") for n in names(removed, work))
+    assert "Work" not in names(removed, work)
+    assert "Work/plan.txt" in names(removed, work)
 
 
 def test_globbing_exclusion_keeps_node_modules_on_level_3(work):
-    deep = work / "Arbejde" / "Projekt" / "web" / "node_modules"
+    deep = work / "Work" / "Project" / "web" / "node_modules"
     deep.mkdir(parents=True)
-    (deep / "pakke.js").write_text("js")
+    (deep / "package.js").write_text("js")
     unknown = ["!**/node_modules/*"]
 
-    removed = find_removed(work, RuleSet(["Andet", "Arbejde"], False, unknown),
-                           RuleSet(["Andet"], False, unknown))
+    removed = find_removed(work, RuleSet(["Other", "Work"], False, unknown),
+                           RuleSet(["Other"], False, unknown))
 
     assert not any("node_modules" in n for n in names(removed, work))
-    assert "Arbejde/Projekt/kode.py" in names(removed, work)
+    assert "Work/Project/code.py" in names(removed, work)
 
 
 def test_from_all_folders_to_a_is_unchanged_with_default_skip_file(sync):
     removed = find_removed(sync, RuleSet(None, False), RuleSet(["A"], False))
 
-    assert names(removed, sync) == ["B", "C", "rod.txt", "rod2.txt"]
+    assert names(removed, sync) == ["B", "C", "root.txt", "root2.txt"]

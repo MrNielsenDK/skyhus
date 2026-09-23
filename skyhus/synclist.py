@@ -1,8 +1,8 @@
-"""Kontoens ``sync_list`` og valget i mappevælgeren.
+"""The account's ``sync_list`` and the selection in the folder picker.
 
-Applikationen styrer kun regler af formen ``/sti/``. Alle andre linjer er
-ukendte regler. Applikationen beholder dem uændret og i samme rækkefølge
-øverst i filen. Findes filen ikke, synkroniserer klienten alle mapper.
+The application manages only rules of the form ``/path/``. All other lines are
+unknown rules. The application keeps them unchanged and in the same order
+at the top of the file. If the file does not exist, the client syncs all folders.
 """
 
 from __future__ import annotations
@@ -24,11 +24,11 @@ _MANAGED = re.compile(r"^/([^*?]+?)/$")
 
 
 class SelectionError(ValueError):
-    """Valget kan ikke blive til en ``sync_list``."""
+    """The selection cannot become a ``sync_list``."""
 
 
 class CheckState(IntEnum):
-    """Samme værdier som ``Qt.CheckState``."""
+    """The same values as ``Qt.CheckState``."""
     UNCHECKED = 0
     PARTIAL = 1
     CHECKED = 2
@@ -38,9 +38,9 @@ class CheckState(IntEnum):
 class SyncList:
     exists: bool
     folders: list[str] = field(default_factory=list)
-    """Stierne fra reglerne ``/sti/`` uden ``/`` i enderne."""
+    """The paths from the rules ``/path/`` without ``/`` at the ends."""
     unknown: list[str] = field(default_factory=list)
-    """Alle andre linjer, også tomme linjer og kommentarer."""
+    """All other lines, also empty lines and comments."""
 
 
 def _managed_path(line: str) -> str | None:
@@ -78,30 +78,30 @@ def rules_for(paths: Iterable[str]) -> list[str]:
 
 
 def write_sync_list(confdir: Path, sync_all: bool, paths: Iterable[str], unknown: list[str]) -> None:
-    """Skriv valget. ``sync_all`` fjerner filen, så klienten synkroniserer alt."""
+    """Write the selection. ``sync_all`` removes the file, so the client syncs everything."""
     target = Path(confdir) / SYNC_LIST
     if sync_all:
         if not sideeffects.guard_write(target):
             return
         try:
             target.unlink()
-            log.info("Fjernede %s", target)
+            log.info("Removed %s", target)
         except FileNotFoundError:
             pass
         return
     rules = rules_for(paths)
     if not rules:
-        raise SelectionError("Vælg mindst 1 mappe, eller vælg \"Synkroniser alle mapper\".")
+        raise SelectionError("Choose at least 1 folder, or choose \"Sync all folders\".")
     for path in paths:
         if "\n" in path or "\r" in path:
-            raise SelectionError(f"Mappenavnet kan ikke stå i sync_list: {path!r}")
+            raise SelectionError(f"The folder name cannot be in sync_list: {path!r}")
     text = "".join(f"{line}\n" for line in [*unknown, *rules])
     if not sideeffects.guard_write(target):
         return
     tmp = target.with_name(SYNC_LIST + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, target)
-    log.info("Skrev %s", target)
+    log.info("Wrote %s", target)
 
 
 def _is_under(path: str, parent: str) -> bool:
@@ -109,10 +109,10 @@ def _is_under(path: str, parent: str) -> bool:
 
 
 class Selection:
-    """Valget i træet som en mængde af helt valgte mapper.
+    """The selection in the tree as a set of fully selected folders.
 
-    En mappe er valgt, hvis den selv eller en overmappe er i mængden. En
-    mappe er delvist valgt, hvis en af dens undermapper er i mængden.
+    A folder is selected if it or a parent folder is in the set. A folder
+    is partly selected if one of its subfolders is in the set.
     """
 
     def __init__(self, paths: Iterable[str] = ()):
@@ -131,10 +131,10 @@ class Selection:
         return CheckState.UNCHECKED
 
     def toggle(self, path: str, children: Callable[[str], list[str] | None]) -> None:
-        """Skift en mappe mellem valgt og ikke valgt.
+        """Switch a folder between selected and not selected.
 
-        ``children`` giver stierne på de hentede undermapper, eller ``None``,
-        hvis applikationen ikke har hentet dem. Roden er ``""``.
+        ``children`` gives the paths of the loaded subfolders, or ``None``
+        if the application has not loaded them. The root is ``""``.
         """
         if self.state(path) is CheckState.CHECKED:
             self._uncheck(path, children)
@@ -144,7 +144,7 @@ class Selection:
     def _check(self, path: str, children: Callable[[str], list[str] | None]) -> None:
         self._paths = {p for p in self._paths if not _is_under(p, path)}
         self._paths.add(path)
-        # Er alle søskende valgt, er overmappen helt valgt. Roden tæller ikke.
+        # If all siblings are selected, the parent folder is fully selected. The root does not count.
         while "/" in path:
             parent = path.rsplit("/", 1)[0]
             siblings = children(parent)
@@ -159,16 +159,16 @@ class Selection:
             self._paths.discard(path)
             return
         ancestor = next(p for p in self._paths if _is_under(path, p))
-        # Erstat overmappen med dens undermapper, undtagen dem på vejen til path.
+        # Replace the parent folder with its subfolders, except the ones on the way to path.
         new_paths = set()
         current = ancestor
         while current != path:
             below = children(current)
             if below is None:
-                raise SelectionError(f"Undermapperne i {current} er ikke hentet.")
+                raise SelectionError(f"The subfolders in {current} are not loaded.")
             step = next((c for c in below if c == path or _is_under(path, c)), None)
             if step is None:
-                raise SelectionError(f"{path} findes ikke i {current}.")
+                raise SelectionError(f"{path} does not exist in {current}.")
             new_paths.update(c for c in below if c != step)
             current = step
         self._paths.discard(ancestor)

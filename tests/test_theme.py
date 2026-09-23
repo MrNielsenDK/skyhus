@@ -1,4 +1,4 @@
-"""Tema, kontrast, avatarer, skrift og ikoner (feature 0003)."""
+"""Theme, contrast, avatars, fonts and icons (feature 0003)."""
 
 import os
 import re
@@ -27,7 +27,7 @@ SPACING_TOKENS = {"spacingXS": 4, "spacingS": 8, "spacingM": 12, "spacingL": 16,
 
 
 class FakeHints(QObject):
-    """Erstatning for QStyleHints. Testen bestemmer farveskemaet."""
+    """Replacement for QStyleHints. The test sets the color scheme."""
 
     colorSchemeChanged = Signal(Qt.ColorScheme)
 
@@ -70,7 +70,7 @@ def color(t, token) -> QColor:
     return t.property(token)
 
 
-# Tema
+# Theme
 
 @pytest.mark.parametrize("scheme", [Qt.ColorScheme.Light, Qt.ColorScheme.Dark])
 def test_every_token_exists_in_both_themes(app, scheme):
@@ -129,7 +129,7 @@ def test_separator_is_translucent(app):
     assert separator.alpha() == round(0.10 * 255)
 
 
-# Kontrast (WCAG 2.1 AA)
+# Contrast (WCAG 2.1 AA)
 
 SCHEMES = [Qt.ColorScheme.Light, Qt.ColorScheme.Dark]
 
@@ -177,11 +177,11 @@ def account(confdir, name="Firma"):
 
 def test_avatar_color_is_fixed_for_confdir():
     first = theme.avatar_color(account("/home/k/.config/onedrive-firma"))
-    again = theme.avatar_color(account("/home/k/.config/onedrive-firma", name="Nyt navn"))
+    again = theme.avatar_color(account("/home/k/.config/onedrive-firma", name="New name"))
 
     assert first == again
     assert first in [background for background, _ in theme.AVATARS]
-    # En fast værdi viser, at farven ikke afhænger af Pythons tilfældige hash.
+    # A fixed value shows that the color does not depend on the random hash of Python.
     assert theme.avatar_index(Path("/home/k/.config/onedrive-firma")) == \
         theme.avatar_index(Path("/home/k/.config/onedrive-firma"))
     assert theme.avatar_index(Path("/home/k/.config/onedrive")) == 1 + int(
@@ -201,7 +201,7 @@ def test_avatar_text_color_matches_avatar_color():
 @pytest.mark.parametrize("name, expected", [
     ("Firma 2", "F2"),
     ("Privat", "P"),
-    ("Søren Ærø", "SÆ"),
+    ("Émile Öberg", "ÉÖ"),
     ("x", "X"),
     ("  ", ""),
     ("anna berg olsen", "AB"),
@@ -210,7 +210,7 @@ def test_initials(name, expected):
     assert theme.initials(name) == expected
 
 
-# Skrift og filer
+# Fonts and files
 
 def test_inter_is_known_after_start(app):
     load_fonts()
@@ -238,7 +238,7 @@ def test_every_referenced_icon_exists():
         for match in ICON_REFERENCE.finditer(path.read_text()):
             referenced.update(STRING.findall(match.group(1)))
     referenced.discard("")
-    assert referenced, "QML-filerne henviser ikke til nogen ikoner"
+    assert referenced, "The QML files do not refer to any icons"
     missing = [name for name in referenced if not (ASSETS_DIR / "icons" / f"{name}.svg").is_file()]
     assert missing == []
 
@@ -254,7 +254,7 @@ def test_no_color_codes_in_qml():
 
 
 def test_no_named_colors_in_qml():
-    """Farver kommer fra Theme. En farve som "red" i QML er også en fast farve."""
+    """Colors come from Theme. A color such as "red" in QML is also a fixed color."""
     offenders = []
     for path in qml_files():
         for line in path.read_text().splitlines():

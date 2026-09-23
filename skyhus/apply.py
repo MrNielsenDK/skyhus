@@ -1,29 +1,30 @@
-"""Udfør en ændring af mappevalget for en konto.
+"""Carry out a change of the folder selection for an account.
 
-``prepare()`` kontrollerer valget og finder de lokale stier, der forsvinder.
-Den ændrer intet. ``execute()`` udfører ændringen i denne rækkefølge:
+``prepare()`` checks the selection and finds the local paths that disappear.
+It changes nothing. ``execute()`` carries out the change in this order:
 
-1. stop kontoens service,
-2. upload lokale ændringer med ``--upload-only --no-remote-delete``,
-3. skriv ``sync_list`` og ``sync_root_files``,
-4. flyt de lokale stier, der forsvinder, til papirkurven,
-5. start servicen én gang med ``--resync --resync-auth``.
+1. stop the account's service,
+2. upload local changes with ``--upload-only --no-remote-delete``,
+3. write ``sync_list`` and ``sync_root_files``,
+4. move the local paths that disappear to Trash,
+5. start the service one time with ``--resync --resync-auth``.
 
-Servicen stopper, før applikationen skriver noget. Så kan klienten ikke se en
-lokal sletning og sende den videre til OneDrive.
+The service stops before the application writes anything. Then the client cannot
+see a local deletion and send it on to OneDrive.
 
-Før første synkronisering findes ``items.sqlite3`` ikke. Så skriver
-``execute()`` kun ``sync_list`` og ``sync_root_files``.
+Before the first sync, ``items.sqlite3`` does not exist. Then
+``execute()`` only writes ``sync_list`` and ``sync_root_files``.
 
-``execute()`` kalder ``on_step(step, state, progress)`` ved hvert skift
-(feature 0009). ``step`` er nøglen i ``STEPS``, og ``state`` er ``WAITING``,
-``RUNNING``, ``DONE`` eller ``FAILED``. Under uploaden og papirkurven er
-``progress`` en kopi af en ``SyncProgress``. Ellers er den ``None``.
+``execute()`` calls ``on_step(step, state, progress)`` at each change
+(feature 0009). ``step`` is the key in ``STEPS``, and ``state`` is ``WAITING``,
+``RUNNING``, ``DONE`` or ``FAILED``. During the upload and the Trash step,
+``progress`` is a copy of a ``SyncProgress``. Otherwise it is ``None``.
 
-Brugeren kan afbryde uploaden i trin 2 med ``CancelFlag`` (feature 0010).
-Så sender ``execute()`` ``SIGTERM`` til klienten og ``SIGKILL`` efter 30
-sekunder. Derefter ændrer den intet og starter servicen igen uden ``--resync``,
-hvis den kørte før. Trin 2 står som ``CANCELLED``, og resultatet er ``CANCELLED``.
+The user can stop the upload in step 2 with ``CancelFlag`` (feature 0010).
+Then ``execute()`` sends ``SIGTERM`` to the client and ``SIGKILL`` after 30
+seconds. After that it changes nothing and starts the service again without
+``--resync`` if it was running before. Step 2 shows ``CANCELLED``, and the result
+is ``CANCELLED``.
 """
 
 from __future__ import annotations
@@ -63,38 +64,38 @@ SendSignal = Callable[[object, int], None]
 
 STOP, UPLOAD, WRITE, TRASH, RESYNC = 1, 2, 3, 4, 5
 STEPS = {
-    STOP: "Stopper servicen",
-    UPLOAD: "Uploader lokale ændringer",
-    WRITE: "Skriver de nye regler",
-    TRASH: "Flytter til papirkurven",
-    RESYNC: "Starter servicen med resync",
+    STOP: "Stopping the service",
+    UPLOAD: "Uploading local changes",
+    WRITE: "Writing the new rules",
+    TRASH: "Moving to Trash",
+    RESYNC: "Starting the service with resync",
 }
-"""De 5 trin i en ændring af mappevalget for en konto, der har synkroniseret før."""
+"""The 5 steps in a change of the folder selection for an account that has synced before."""
 
 WAITING = "waiting"
 RUNNING = "running"
 DONE = "done"
 FAILED = "failed"
 CANCELLED = "cancelled"
-"""Trin 2 og resultatet, når brugeren har afbrudt uploaden (feature 0010)."""
+"""Step 2 and the result when the user has stopped the upload (feature 0010)."""
 
 OnStep = Callable[[int, str, "SyncProgress | None"], None]
 UPLOAD_DETAIL_LINES = 5
 CANCEL_POLL_SECONDS = 1
-"""Så ofte ser tråden efter "Afbryd", når klienten ikke skriver nye linjer."""
+"""How often the thread checks for "Stop" when the client writes no new lines."""
 KILL_AFTER_SECONDS = 30
-"""Så længe får klienten til at lukke pænt ned efter ``SIGTERM``."""
+"""The time the client gets to shut down cleanly after ``SIGTERM``."""
 
 
 class ApplyError(RuntimeError):
-    """Ændringen kan ikke udføres. Beskeden kan vises for brugeren."""
+    """The change cannot be carried out. The message can be shown to the user."""
 
 
 @dataclass
 class Change:
     account: Account
     synced: bool
-    """``items.sqlite3`` findes. Klienten har synkroniseret kontoen før."""
+    """``items.sqlite3`` exists. The client has synced the account before."""
     sync_all: bool
     folders: list[str]
     root_files: bool
@@ -107,15 +108,15 @@ class Result:
     resynced: bool
     trash_failures: list[Path] = field(default_factory=list)
     outcome: str = DONE
-    """``DONE`` eller ``CANCELLED``."""
+    """``DONE`` or ``CANCELLED``."""
 
 
 class CancelFlag:
-    """Knappen "Afbryd" i trin 2 (feature 0010).
+    """The "Stop" button in step 2 (feature 0010).
 
-    Hovedtråden kalder ``request()``, og tråden i ``execute()`` læser flaget.
-    Flaget virker kun, mens uploaden kører. Før og efter trin 2 svarer
-    ``request()`` falsk og ændrer intet.
+    The main thread calls ``request()``, and the thread in ``execute()`` reads the flag.
+    The flag only works while the upload runs. Before and after step 2,
+    ``request()`` returns false and changes nothing.
     """
 
     def __init__(self):
@@ -124,7 +125,7 @@ class CancelFlag:
         self._requested = False
 
     def request(self) -> bool:
-        """Afbryd uploaden. Falsk, hvis trin 2 ikke kører."""
+        """Stop the upload. False if step 2 is not running."""
         with self._lock:
             if not self._open:
                 return False
@@ -136,12 +137,12 @@ class CancelFlag:
             return self._requested
 
     def begin(self) -> None:
-        """Trin 2 begynder. Fra nu kan brugeren afbryde."""
+        """Step 2 begins. From now on the user can stop."""
         with self._lock:
             self._open = True
 
     def end(self) -> bool:
-        """Trin 2 er slut. Sandt, hvis brugeren nåede at afbryde."""
+        """Step 2 is over. True if the user stopped in time."""
         with self._lock:
             self._open = False
             return self._requested
@@ -167,35 +168,35 @@ def _describe_processes(processes) -> str:
 
 def _rule_sets(account: Account, current, *, sync_all: bool, folders: list[str],
                root_files: bool) -> tuple[RuleSet, RuleSet]:
-    """De gamle og de nye regler. En regel, der ikke kan tolkes, giver ``ApplyError``."""
+    """The old and the new rules. A rule that cannot be interpreted gives ``ApplyError``."""
     confdir = account.confdir
     config = dict(skip_dirs=read_skip_dirs(confdir), skip_dir_strict=read_skip_dir_strict(confdir),
                   skip_files=read_skip_files(confdir), skip_dotfiles=read_skip_dotfiles(confdir))
     try:
         old = RuleSet(current.folders if current.exists else None, read_sync_root_files(confdir),
                       current.unknown, **config)
-        # "Synkroniser alle mapper" fjerner sync_list og dermed også de ukendte regler.
+        # "Sync all folders" removes sync_list and with it also the unknown rules.
         new = RuleSet(None if sync_all else folders, root_files, current.unknown, **config)
     except UnknownRuleError as exc:
-        raise ApplyError(f"{exc} Applikationen ændrer ikke noget. "
-                         f"Ret eller fjern reglen i {Path(confdir) / 'sync_list'}.") from None
+        raise ApplyError(f"{exc} Skyhus does not change anything. "
+                         f"Fix or remove the rule in {Path(confdir) / 'sync_list'}.") from None
     return old, new
 
 
 def prepare(account: Account, *, sync_all: bool, folders: list[str], root_files: bool,
             home: Path | None = None, proc_root: Path = PROC_ROOT) -> Change:
-    """Kontrollér valget og find de lokale stier, der forsvinder. Ændrer intet."""
+    """Check the selection and find the local paths that disappear. Changes nothing."""
     folders = list(folders)
     if not sync_all and not folders:
-        raise SelectionError("Vælg mindst 1 mappe, eller vælg \"Synkroniser alle mapper\".")
+        raise SelectionError("Choose at least 1 folder, or choose \"Sync all folders\".")
     current = read_sync_list(account.confdir)
     old, new = _rule_sets(account, current, sync_all=sync_all, folders=folders, root_files=root_files)
     synced = has_synced(account.confdir)
     if synced and not account.service:
-        raise ApplyError("Kontoen har ingen service. Applikationen kan ikke ændre mappevalget sikkert.")
+        raise ApplyError("The account has no service. Skyhus cannot change the folder selection safely.")
     others = _foreign_processes(account, home, proc_root, account.service)
     if others:
-        raise ApplyError("En anden onedrive-proces bruger kontoen. Stop den først.\n"
+        raise ApplyError("Another onedrive process uses the account. Stop it first.\n"
                          + _describe_processes(others))
     change = Change(account=account, synced=synced, sync_all=sync_all, folders=folders,
                     root_files=root_files, unknown=current.unknown)
@@ -211,10 +212,10 @@ def _write(change: Change) -> None:
 
 
 class Upload:
-    """Uploaden i trin 2. Klientens stdout går linje for linje til ``progress``.
+    """The upload in step 2. The client's stdout goes line by line to ``progress``.
 
-    ``process`` er den kørende proces, mens ``run()`` venter på den. Med et
-    ``cancel``-flag ser ``run()`` efter "Afbryd" for hver linje og hvert sekund.
+    ``process`` is the running process while ``run()`` waits for it. With a
+    ``cancel`` flag, ``run()`` checks for "Stop" at each line and each second.
     """
 
     def __init__(self, change: Change, popen: Popen, on_progress: Callable[[SyncProgress], None], *,
@@ -235,14 +236,14 @@ class Upload:
         self._terminated_at: float | None = None
 
     def run(self) -> None:
-        """Kør uploaden til ende. En fejl giver ``ApplyError`` med de sidste linjer fra klienten."""
-        log.info("Kører %s", " ".join(self.command))
+        """Run the upload to the end. An error gives ``ApplyError`` with the last lines from the client."""
+        log.info("Running %s", " ".join(self.command))
         try:
-            # En upload kan tage lang tid. Der er derfor ingen tidsgrænse.
+            # An upload can take a long time. So there is no time limit.
             self.process = self._popen(self.command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                        stdin=subprocess.DEVNULL, text=True, errors="replace")
         except OSError as exc:
-            raise ApplyError(f"Kan ikke starte {ONEDRIVE}: {exc}") from None
+            raise ApplyError(f"Cannot start {ONEDRIVE}: {exc}") from None
         watcher = None
         if self._cancel is not None:
             watcher = threading.Thread(target=self._watch, daemon=True)
@@ -260,10 +261,10 @@ class Upload:
             watcher.join()
         if returncode != 0:
             detail = "\n".join(self._tail)
-            raise ApplyError(f"Uploaden af lokale ændringer fejlede med exit-kode {returncode}.\n{detail}".strip())
+            raise ApplyError(f"The upload of local changes failed with exit code {returncode}.\n{detail}".strip())
 
     def _watch(self) -> None:
-        """Se efter "Afbryd" hvert sekund. Stop processen, hvis brugeren har klikket."""
+        """Check for "Stop" each second. Stop the process if the user has clicked."""
         while not self._finished.wait(CANCEL_POLL_SECONDS):
             if self._cancel.is_set():
                 self._terminate()
@@ -275,17 +276,17 @@ class Upload:
             if self._terminated_at is not None:
                 return
             self._terminated_at = self._clock()
-        log.info("Afbryder uploaden: sender SIGTERM til %s", " ".join(self.command))
+        log.info("Stopping the upload: sending SIGTERM to %s", " ".join(self.command))
         self._send_signal(self.process, signal.SIGTERM)
 
     def _stopped(self) -> bool:
         return self._finished.is_set() or self.process.poll() is not None
 
     def _kill_after_grace(self) -> None:
-        """Send ``SIGKILL``, hvis processen ikke er stoppet 30 sekunder efter ``SIGTERM``."""
+        """Send ``SIGKILL`` if the process has not stopped 30 seconds after ``SIGTERM``."""
         while not self._stopped():
             if self._clock() - self._terminated_at >= KILL_AFTER_SECONDS:
-                log.warning("Uploaden stoppede ikke inden %s sekunder. Sender SIGKILL.", KILL_AFTER_SECONDS)
+                log.warning("The upload did not stop within %s seconds. Sending SIGKILL.", KILL_AFTER_SECONDS)
                 self._send_signal(self.process, signal.SIGKILL)
                 return
             self._sleep(CANCEL_POLL_SECONDS)
@@ -308,7 +309,7 @@ def _report(on_step: OnStep | None, step: int, state: str, progress: SyncProgres
 
 
 def _upload(upload: Upload, cancel: CancelFlag | None) -> bool:
-    """Kør uploaden. Sandt, hvis brugeren afbrød den. En afbrudt upload er ikke en fejl."""
+    """Run the upload. True if the user stopped it. A stopped upload is not an error."""
     if cancel is None:
         upload.run()
         return False
@@ -319,7 +320,7 @@ def _upload(upload: Upload, cancel: CancelFlag | None) -> bool:
         if cancel.end():
             return True
         raise
-    # Slutter uploaden med exit-kode 0, idet brugeren klikker, er ændringen stadig afbrudt.
+    # If the upload ends with exit code 0 as the user clicks, the change is still stopped.
     return cancel.end()
 
 
@@ -329,9 +330,9 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
             service_active: bool = True, send_signal: SendSignal | None = None,
             clock: Callable[[], float] | None = None,
             sleep: Callable[[float], None] | None = None) -> Result:
-    """Udfør ændringen. ``service_active`` er falsk, hvis servicen var stoppet før.
+    """Carry out the change. ``service_active`` is false if the service was stopped before.
 
-    Så starter ``execute()`` ikke servicen igen efter en fejl eller en afbrydelse.
+    Then ``execute()`` does not start the service again after an error or a stop.
     """
     run = run or sideeffects.run
     popen = popen or sideeffects.popen
@@ -353,12 +354,12 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         service_control.stop(service, run=run)
     except SystemctlError as exc:
         _report(on_step, STOP, FAILED)
-        raise ApplyError(f"Kan ikke stoppe {service}:\n{exc}") from None
+        raise ApplyError(f"Cannot stop {service}:\n{exc}") from None
 
     try:
         remaining = find_processes(change.account.confdir, home=home, proc_root=proc_root)
         if remaining:
-            raise ApplyError("onedrive kører stadig for kontoen, efter at servicen er stoppet.\n"
+            raise ApplyError("onedrive is still running for the account after the service stopped.\n"
                              + _describe_processes(remaining))
         _report(on_step, STOP, DONE)
         step = UPLOAD
@@ -366,7 +367,7 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
                         cancel=cancel, send_signal=send_signal, clock=clock, sleep=sleep)
         _report(on_step, UPLOAD, RUNNING, upload.progress)
         if _upload(upload, cancel):
-            log.info("Brugeren afbrød uploaden. Mappevalget er uændret.")
+            log.info("The user stopped the upload. The folder selection did not change.")
             _report(on_step, UPLOAD, CANCELLED, upload.progress)
             if service_active:
                 _start_again(service, run)
@@ -381,7 +382,7 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         if service_active:
             _start_again(service, run)
         if isinstance(exc, OSError):
-            raise ApplyError(f"Kan ikke skrive kontoens filer: {exc}") from None
+            raise ApplyError(f"Cannot write the account's files: {exc}") from None
         raise
 
     failures = []
@@ -391,10 +392,10 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         try:
             moved = trash(removed.path)
         except OSError as exc:
-            log.warning("Kan ikke flytte %s til papirkurven: %s", removed.path, exc)
+            log.warning("Cannot move %s to Trash: %s", removed.path, exc)
             moved = False
         if not moved:
-            log.warning("Kan ikke flytte %s til papirkurven", removed.path)
+            log.warning("Cannot move %s to Trash", removed.path)
             failures.append(removed.path)
         moved_count.done += 1
         moved_count.latest = str(removed.path)
@@ -406,7 +407,7 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
         service_control.restart_with_resync(service, home=home, run=run)
     except (SystemctlError, OSError) as exc:
         _report(on_step, RESYNC, FAILED)
-        raise ApplyError(f"Mappevalget er gemt, men {service} startede ikke med --resync:\n{exc}") from None
+        raise ApplyError(f"The folder selection is saved, but {service} did not start with --resync:\n{exc}") from None
     _report(on_step, RESYNC, DONE)
     return Result(resynced=True, trash_failures=failures)
 
@@ -415,4 +416,4 @@ def _start_again(service: str, run: Run) -> None:
     try:
         service_control.start(service, run=run)
     except SystemctlError as exc:
-        log.warning("Kan ikke starte %s igen: %s", service, exc)
+        log.warning("Cannot start %s again: %s", service, exc)

@@ -1,25 +1,25 @@
-"""Klientens regler i sync_list og config (feature 0006)."""
+"""The client's rules in sync_list and config (feature 0006)."""
 
 import pytest
 
 from skyhus.rules import RuleSet, UnknownRuleError
 
 
-@pytest.mark.parametrize("rule", ["/", "/*", "!/*", "-/", "./Arbejde", "/A/../B/", "/A**/", "!"])
+@pytest.mark.parametrize("rule", ["/", "/*", "!/*", "-/", "./Work", "/A/../B/", "/A**/", "!"])
 def test_rule_that_cannot_be_interpreted_gives_error_with_rule(rule):
     with pytest.raises(UnknownRuleError, match=__import__("re").escape(rule)):
         RuleSet(["A"], False, [rule])
 
 
 def test_comments_and_empty_lines_are_not_rules():
-    rules = RuleSet(["A"], False, ["# kommentar", "; kommentar", "", "   "])
+    rules = RuleSet(["A"], False, ["# comment", "; comment", "", "   "])
 
     assert rules.includes("A/x.txt", False)
     assert not rules.includes("B/x.txt", False)
 
 
 def test_sync_list_without_rules_includes_everything():
-    rules = RuleSet([], False, ["# kun en kommentar"])
+    rules = RuleSet([], False, ["# only a comment"])
 
     assert rules.includes("B/x.txt", False)
 
@@ -77,25 +77,25 @@ def test_double_star_spans_several_segments():
 
 
 def test_sync_list_is_case_sensitive():
-    rules = RuleSet(["Arbejde"], False)
+    rules = RuleSet(["Work"], False)
 
-    assert not rules.includes("arbejde/x.txt", False)
+    assert not rules.includes("work/x.txt", False)
 
 
 def test_skip_file_default_and_case():
     rules = RuleSet(None, False)
 
-    assert not rules.includes("A/NOTER.TMP", False)
-    assert not rules.includes("A/~lås", False)
-    assert rules.includes("A/noter.txt", False)
+    assert not rules.includes("A/NOTES.TMP", False)
+    assert not rules.includes("A/~lock", False)
+    assert rules.includes("A/notes.txt", False)
 
 
 def test_skip_file_with_full_path():
     rules = RuleSet(None, False, skip_files=["/Documents/keepass.kdbx"])
 
     assert not rules.includes("Documents/keepass.kdbx", False)
-    assert rules.includes("Andet/keepass.kdbx", False)
-    assert rules.includes("A/noter.tmp", False)
+    assert rules.includes("Other/keepass.kdbx", False)
+    assert rules.includes("A/notes.tmp", False)
 
 
 def test_skip_dotfiles_applies_to_folders_and_files():
@@ -115,5 +115,5 @@ def test_skip_dir_applies_to_everything_below():
 
 
 def test_root_files_follow_sync_root_files():
-    assert RuleSet(["A"], True).includes("rod.txt", False)
-    assert not RuleSet(["A"], False).includes("rod.txt", False)
+    assert RuleSet(["A"], True).includes("root.txt", False)
+    assert not RuleSet(["A"], False).includes("root.txt", False)

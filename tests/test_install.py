@@ -1,4 +1,4 @@
-"""Installér Skyhus på skrivebordet (feature 0013)."""
+"""Install Skyhus on the desktop (feature 0013)."""
 
 import logging
 import stat
@@ -77,30 +77,45 @@ def test_desktop_file_has_full_exec_path_icon_and_marker(home):
     assert "X-Skyhus-Installer=true" in lines
 
 
+def test_desktop_file_text_is_english(home):
+    do_install(home)
+    lines = paths(home)["desktop"].read_text().splitlines()
+
+    assert "GenericName=OneDrive accounts" in lines
+    assert "Comment=Multiple OneDrive accounts on Linux" in lines
+
+
+def test_script_has_english_marker(home):
+    do_install(home)
+
+    assert install.MARKER == "Installed by Skyhus"
+    assert "# Installed by Skyhus." in paths(home)["script"].read_text()
+
+
 def test_icon_has_marker(home):
     do_install(home)
 
-    assert "<!-- Installeret af Skyhus -->" in paths(home)["icon"].read_text()
+    assert "<!-- Installed by Skyhus -->" in paths(home)["icon"].read_text()
 
 
 @pytest.mark.parametrize("which", ["script", "desktop", "icon"])
 def test_foreign_file_stops_installation(home, which):
     p = paths(home)
     p[which].parent.mkdir(parents=True)
-    p[which].write_text("noget andet\n")
+    p[which].write_text("something else\n")
 
     result = do_install(home)
 
     assert str(p[which]) in result.error
     assert result.written == []
-    assert p[which].read_text() == "noget andet\n"
+    assert p[which].read_text() == "something else\n"
     for name, path in p.items():
         if name != which:
             assert not path.exists()
 
 
 def test_foreign_symlink_stops_installation(home, tmp_path):
-    target = tmp_path / "andet-program"
+    target = tmp_path / "other-program"
     target.write_text(f"#!/bin/sh\n# {install.MARKER}\n")
     script = paths(home)["script"]
     script.parent.mkdir(parents=True)
@@ -115,13 +130,58 @@ def test_foreign_symlink_stops_installation(home, tmp_path):
 def test_own_files_are_overwritten(home):
     do_install(home)
     script = paths(home)["script"]
-    script.write_text(f"#!/bin/sh\n# {install.MARKER}\ngammel\n")
+    script.write_text(f"#!/bin/sh\n# {install.MARKER}\nold\n")
 
     result = do_install(home)
 
     assert result.error == ""
-    assert "gammel" not in script.read_text()
+    assert "old\n" not in script.read_text()
     assert str(ROOT) in script.read_text()
+
+
+# Files from version 0.9.0 have the old marker
+
+def write_legacy_files(home):
+    p = paths(home)
+    for name in ("script", "icon"):
+        p[name].parent.mkdir(parents=True, exist_ok=True)
+    p["script"].write_text(f"#!/bin/sh\n# {install.LEGACY_MARKER}.\nold\n")
+    p["icon"].write_text(f"<svg><!-- {install.LEGACY_MARKER} --></svg>\n")
+    return p
+
+
+def test_files_with_the_old_marker_are_overwritten(home):
+    p = write_legacy_files(home)
+
+    result = do_install(home)
+
+    assert result.error == ""
+    assert install.LEGACY_MARKER not in p["script"].read_text()
+    assert install.MARKER in p["script"].read_text()
+    assert install.LEGACY_MARKER not in p["icon"].read_text()
+    assert install.MARKER in p["icon"].read_text()
+
+
+def test_files_with_the_old_marker_are_removed_on_uninstall(home):
+    p = write_legacy_files(home)
+
+    result = install.uninstall(home, run=RecordingRun())
+
+    assert not p["script"].exists()
+    assert not p["icon"].exists()
+    assert sorted(result.removed) == sorted([p["script"], p["icon"]])
+    assert result.warnings == []
+
+
+def test_old_marker_does_not_count_for_the_desktop_file(home):
+    desktop = paths(home)["desktop"]
+    desktop.parent.mkdir(parents=True)
+    desktop.write_text(f"[Desktop Entry]\n# {install.LEGACY_MARKER}\n")
+
+    result = do_install(home)
+
+    assert str(desktop) in result.error
+    assert result.written == []
 
 
 def test_install_refreshes_the_menu(home):
@@ -138,7 +198,7 @@ def test_failing_menu_refresh_gives_a_warning(home):
     def run(args, **kwargs):
         if args[0] == "kbuildsycoca6":
             raise FileNotFoundError(args[0])
-        return subprocess.CompletedProcess(args, 1, stdout="", stderr="fejl")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="error")
 
     result = do_install(home, run=run)
 
@@ -159,11 +219,11 @@ def test_missing_webengine_gives_a_warning(home):
     result = do_install(home, find_spec=missing_webengine)
 
     assert result.error == ""
-    assert any("login" in w.lower() for w in result.warnings)
+    assert any("sign-in" in w.lower() for w in result.warnings)
     assert paths(home)["script"].exists()
 
 
-# Afinstallation
+# Uninstall
 
 def test_uninstall_removes_own_files(home):
     do_install(home)
@@ -178,11 +238,11 @@ def test_uninstall_removes_own_files(home):
 def test_uninstall_keeps_foreign_file(home):
     do_install(home)
     desktop = paths(home)["desktop"]
-    desktop.write_text("[Desktop Entry]\nName=Andet\n")
+    desktop.write_text("[Desktop Entry]\nName=Other\n")
 
     result = install.uninstall(home, run=RecordingRun())
 
-    assert desktop.read_text() == "[Desktop Entry]\nName=Andet\n"
+    assert desktop.read_text() == "[Desktop Entry]\nName=Other\n"
     assert any(str(desktop) in w for w in result.warnings)
     assert not paths(home)["script"].exists()
 
@@ -198,7 +258,7 @@ def test_uninstall_keeps_config(home):
     assert (config / "accounts.json").exists()
 
 
-# Sikker tilstand
+# Safe mode
 
 def test_safe_mode_does_not_write_under_the_real_home(monkeypatch):
     from skyhus import sideeffects
@@ -215,7 +275,7 @@ def test_safe_mode_does_not_write_under_the_real_home(monkeypatch):
     assert written == []
 
 
-# Applikationen og projektet
+# The application and the project
 
 def test_app_sets_desktop_file_name_and_window_icon():
     text = (ROOT / "skyhus" / "app.py").read_text(encoding="utf-8")

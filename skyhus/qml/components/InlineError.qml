@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Skyhus
 
-// En fejlbesked med et ikon i danger. Teksten står i textPrimary.
+// An error message with an icon in danger. The text is in textPrimary.
 RowLayout {
     id: error
 

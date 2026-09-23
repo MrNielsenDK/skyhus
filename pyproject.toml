@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skyhus"
-version = "0.9.0"
-description = "Qt-brugerflade til flere OneDrive-konti med abraunegg/onedrive"
+version = "0.10.0"
+description = "Qt user interface for multiple OneDrive accounts with abraunegg/onedrive"
 readme = "README.md"
 requires-python = ">=3.12"
-# Ingen pip-afhængigheder: PySide6 og onedrive er systempakker. README har apt install-linjen.
+# No pip dependencies: PySide6 and onedrive are system packages. The README has the apt install line.
 
 [project.optional-dependencies]
 test = ["pytest"]

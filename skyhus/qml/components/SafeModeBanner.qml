@@ -2,12 +2,12 @@ import QtQuick
 import QtQuick.Layouts
 import Skyhus
 
-// Banneret øverst i vinduet i sikker tilstand (feature 0007). Tonen er warning.
+// The banner at the top of the window in safe mode (feature 0007). The tone is warning.
 Rectangle {
     id: banner
     objectName: "safeModeBanner"
 
-    readonly property string text: "Sikker tilstand – applikationen ændrer ikke noget på systemet"
+    readonly property string text: "Safe mode – Skyhus does not change anything on the system"
 
     implicitHeight: row.implicitHeight + 2 * Theme.spacingS
     color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.14)

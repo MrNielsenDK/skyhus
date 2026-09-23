@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Skyhus
 
-// Et kort med afrundede hjørner. Rækkerne står under hinanden, og title står over kortet.
+// A card with rounded corners. The rows are stacked, and title is above the card.
 ColumnLayout {
     id: card
 

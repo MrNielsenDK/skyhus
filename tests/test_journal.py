@@ -1,7 +1,7 @@
-"""Den seneste fejllinje fra servicens journal (feature 0004).
+"""The latest error line from the journal of the service (feature 0004).
 
-Linjerne er optaget fra ``journalctl --user -u onedrive-privat.service -o json``.
-Stierne er erstattet med opdigtede stier.
+The lines are recorded from ``journalctl --user -u onedrive-privat.service -o json``.
+The paths are replaced with made-up paths.
 """
 
 import json
@@ -21,22 +21,22 @@ def journal_output(*entries):
 
 
 NO_SPACE_ERROR = [
-    entry("Downloading file: Dokumenter/film.avi ... done"),
+    entry("Downloading file: Documents/film.avi ... done"),
     entry("ERROR: The local file system returned an error with the following details:"),
     entry("  Calling Function:  syncEngine.downloadFileItem()"),
-    entry("  Path:              Dokumenter/film.avi"),
+    entry("  Path:              Documents/film.avi"),
     entry("  Error Message:     Wrote 0 instead of 16375 objects of type ubyte to file "
-          "`Dokumenter/film.avi.partial' (No space left on device)"),
+          "`Documents/film.avi.partial' (No space left on device)"),
     entry("  Disk Space (CWD):  0 bytes available"),
 ]
 
 TIMEOUT_TAIL = [
     entry("Received termination signal, attempting to cleanly shutdown application"),
-    entry("Stopping onedrive-privat.service - OneDrive Client for Linux (privat konto)...", "systemd", "3263"),
+    entry("Stopping onedrive-privat.service - OneDrive Client for Linux (privat konto)...", "systemd", "3263"),  # allow-danish: real journal data
     entry("onedrive-privat.service: State 'stop-sigterm' timed out. Killing.", "systemd", "3263"),
     entry("onedrive-privat.service: Main process exited, code=killed, status=9/KILL", "systemd", "3263"),
     entry("onedrive-privat.service: Failed with result 'timeout'.", "systemd", "3263"),
-    entry("Stopped onedrive-privat.service - OneDrive Client for Linux (privat konto).", "systemd", "3263"),
+    entry("Stopped onedrive-privat.service - OneDrive Client for Linux (privat konto).", "systemd", "3263"),  # allow-danish: real journal data
 ]
 
 
@@ -52,7 +52,7 @@ def test_error_message_line_follows_error():
 
 
 def test_error_message_line_after_other_detail_lines():
-    """Klienten skriver "Calling Function:" og "Path:" før "Error Message:"."""
+    """The client writes "Calling Function:" and "Path:" before "Error Message:"."""
     line = latest(*NO_SPACE_ERROR, *TIMEOUT_TAIL)
 
     assert line.startswith("Error Message: Wrote 0 instead of 16375")
@@ -61,7 +61,7 @@ def test_error_message_line_after_other_detail_lines():
 
 def test_newest_of_two_errors():
     assert latest(
-        entry("ERROR: Invalid sync_list rule '/gammel' detected."),
+        entry("ERROR: Invalid sync_list rule '/old' detected."),
         entry("Syncing changes from Microsoft OneDrive ..."),
         entry("ERROR: Check your configuration as your refresh_token may be empty or invalid."),
     ) == "ERROR: Check your configuration as your refresh_token may be empty or invalid."
@@ -78,7 +78,7 @@ def test_empty_journal_gives_no_error_line():
 
 
 def test_resync_required_counts_as_error_line():
-    """Klienten skriver ikke "ERROR:" foran beskeden, når den stopper med exit-kode 126."""
+    """The client does not write "ERROR:" in front of the message when it stops with exit code 126."""
     assert latest(
         entry("An application configuration change has been detected where a --resync is required"),
         entry("onedrive-privat.service: Main process exited, code=exited, status=126/n/a", "systemd", "1"),
@@ -95,8 +95,8 @@ def test_error_inside_trace_line_is_not_an_error_line():
 
 def test_message_as_bytes_is_decoded():
     raw = json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "1",
-                      "MESSAGE": list("ERROR: Fejl i æ".encode())})
-    assert journal.latest_error(journal.parse_entries(raw + "\n")) == "ERROR: Fejl i æ"
+                      "MESSAGE": list("ERROR: café naïve".encode())})
+    assert journal.latest_error(journal.parse_entries(raw + "\n")) == "ERROR: café naïve"
 
 
 def test_read_latest_error_runs_journalctl():
@@ -115,13 +115,13 @@ def test_read_latest_error_gives_empty_when_journalctl_fails():
     assert journal.read_latest_error("onedrive-privat.service", run=run) == ""
 
 
-# Feature 0009: linjerne fra servicens nuværende kørsel.
+# Feature 0009: the lines from the current run of the service.
 
 INVOCATION = "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
 
 
 def invocation_entry(message, cursor, identifier="onedrive", when="1790143816219521"):
-    """En linje, som ``journalctl -o json`` skriver den for en user-service."""
+    """A line as ``journalctl -o json`` writes it for a user service."""
     return json.dumps({"SYSLOG_IDENTIFIER": identifier, "_PID": "315472", "PRIORITY": "6",
                        "_TRANSPORT": "stdout", "_SYSTEMD_USER_UNIT": "onedrive-privat.service",
                        "_SYSTEMD_INVOCATION_ID": INVOCATION, "__REALTIME_TIMESTAMP": when,

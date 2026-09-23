@@ -1,8 +1,8 @@
-"""Sikker tilstand (feature 0007).
+"""Safe mode (feature 0007).
 
-``conftest.py`` slår sikker tilstand til i alle tests. Testene her erstatter
-``subprocess.run``, ``subprocess.Popen`` og ``QFile.moveToTrash`` med attrapper
-og kontrollerer, om kaldet når den underliggende funktion.
+``conftest.py`` turns on safe mode in all tests. The tests here replace
+``subprocess.run``, ``subprocess.Popen`` and ``QFile.moveToTrash`` with fakes
+and check if the call gets to the underlying function.
 """
 
 import ast
@@ -31,7 +31,7 @@ class RecordingPopen:
 
 @pytest.fixture
 def underlying(monkeypatch):
-    """Attrapper for de funktioner, der ændrer systemet."""
+    """Fakes for the functions that change the system."""
     run, popen, trashed = RecordingRun(), RecordingPopen(), []
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(subprocess, "Popen", popen)
@@ -47,14 +47,14 @@ def underlying(monkeypatch):
 
 @pytest.fixture
 def normal_mode(monkeypatch):
-    """Den rigtige HOME uden miljøvariablen og uden --safe."""
+    """The real HOME without the environment variable and without --safe."""
     monkeypatch.setenv("HOME", str(REAL_HOME))
     monkeypatch.delenv(sideeffects.ENV_VAR, raising=False)
     sideeffects.init(["skyhus"])
     assert sideeffects.safe_mode() is False
 
 
-# Aktivering
+# Activation
 
 def test_env_var_turns_safe_mode_on(monkeypatch):
     monkeypatch.setenv("HOME", str(REAL_HOME))
@@ -105,7 +105,7 @@ def test_result_is_fixed_after_start(monkeypatch):
     assert sideeffects.safe_mode() is True
 
 
-# Blokering
+# Blocking
 
 def test_restart_is_blocked_and_logged(underlying, caplog):
     run, _, _ = underlying
@@ -169,13 +169,13 @@ def test_onedrive_is_not_started_by_run(underlying):
 
     assert run.calls == []
     assert result.returncode == 1
-    assert result.stderr == "Sikker tilstand: onedrive blev ikke startet"
+    assert result.stderr == "Safe mode: onedrive was not started"
 
 
 def test_trash_does_not_move_the_file(underlying, tmp_path, caplog):
     _, _, trashed = underlying
     caplog.set_level(logging.INFO)
-    path = tmp_path / "fil.txt"
+    path = tmp_path / "file.txt"
     path.write_text("data")
 
     assert sideeffects.trash(path) is True
@@ -190,7 +190,7 @@ def test_guard_write_blocks_systemd_unit_under_real_home(caplog):
     path = REAL_HOME / ".config" / "systemd" / "user" / "x.service"
 
     assert sideeffects.guard_write(path) is False
-    assert f"SAFE MODE: skriver ikke {path}" in caplog.text
+    assert f"SAFE MODE: not writing {path}" in caplog.text
 
 
 def test_guard_write_allows_gui_dir_under_real_home():
@@ -208,15 +208,15 @@ def test_without_safe_mode_every_call_reaches_the_function(underlying, normal_mo
 
     sideeffects.run(["systemctl", "--user", "restart", "onedrive.service"])
     sideeffects.popen(["/usr/bin/onedrive", "--auth-files", "a:b"])
-    sideeffects.trash(tmp_path / "fil.txt")
+    sideeffects.trash(tmp_path / "file.txt")
 
     assert run.calls == [["systemctl", "--user", "restart", "onedrive.service"]]
     assert popen.calls == [["/usr/bin/onedrive", "--auth-files", "a:b"]]
-    assert trashed == [str(tmp_path / "fil.txt")]
+    assert trashed == [str(tmp_path / "file.txt")]
     assert sideeffects.guard_write(REAL_HOME / ".config" / "systemd" / "user" / "x.service") is True
 
 
-# Signaler til en proces (feature 0010)
+# Signals to a process (feature 0010)
 
 class SignalledProcess:
     pid = 4711
@@ -237,8 +237,8 @@ def test_signal_is_not_sent_in_safe_mode(caplog):
     sideeffects.signal_process(process, signal.SIGKILL)
 
     assert process.signals == []
-    assert "SAFE MODE: sender ikke SIGTERM til PID 4711" in caplog.text
-    assert "SAFE MODE: sender ikke SIGKILL til PID 4711" in caplog.text
+    assert "SAFE MODE: not sending SIGTERM to PID 4711" in caplog.text
+    assert "SAFE MODE: not sending SIGKILL to PID 4711" in caplog.text
 
 
 def test_signal_is_sent_without_safe_mode(normal_mode):
@@ -264,7 +264,7 @@ def test_guard_write_allows_state_json_under_real_home():
     assert sideeffects.guard_write(REAL_HOME / ".config" / "skyhus" / "state.json") is True
 
 
-# Kildekoden
+# The source code
 
 FORBIDDEN = {("subprocess", "run"), ("subprocess", "Popen"), ("QFile", "moveToTrash")}
 WRITE_METHODS = {"write_text", "write_bytes", "unlink", "rmdir", "mkdir", "rmtree", "touch",
@@ -300,7 +300,7 @@ def test_plan_step_3_modules_exist():
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
 def test_no_module_uses_side_effects_directly(path):
-    """Kun ``sideeffects.py`` må bruge ``subprocess.run``, ``subprocess.Popen`` og ``QFile.moveToTrash``."""
+    """Only ``sideeffects.py`` can use ``subprocess.run``, ``subprocess.Popen`` and ``QFile.moveToTrash``."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     skip = _annotation_nodes(tree)
     found = [f"{path.name}:{node.lineno} {node.value.id}.{node.attr}"
@@ -320,16 +320,16 @@ def _writes(function):
             continue
         func = node.func
         if isinstance(func, ast.Attribute) and func.attr in WRITE_METHODS:
-            # str.replace og list.remove skriver ikke. os.replace og os.remove gør.
+            # str.replace and list.remove do not write. os.replace and os.remove do.
             if func.attr in ("replace", "remove") and not (
                     isinstance(func.value, ast.Name) and func.value.id in ("os", "shutil")):
                 continue
-            yield f"{func.attr}() linje {node.lineno}"
+            yield f"{func.attr}() line {node.lineno}"
         elif isinstance(func, ast.Name) and func.id in ("open", "chmod"):
             mode = node.args[1] if len(node.args) > 1 else next(
                 (k.value for k in node.keywords if k.arg == "mode"), None)
             if func.id == "chmod" or (isinstance(mode, ast.Constant) and set(str(mode.value)) & set("wax+")):
-                yield f"{func.id}() linje {node.lineno}"
+                yield f"{func.id}() line {node.lineno}"
 
 
 def _calls_guard(function):
@@ -341,7 +341,7 @@ def _calls_guard(function):
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
 def test_every_file_write_is_guarded(path):
-    """En funktion, der skriver eller sletter en fil, skal kalde ``guard_write``."""
+    """A function that writes or deletes a file must call ``guard_write``."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     missing = []
     for node in ast.walk(tree):
@@ -358,9 +358,9 @@ SIGNAL_METHODS = {"terminate", "kill", "send_signal"}
 
 @pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
 def test_no_module_sends_signals_directly(path):
-    """Signaler går gennem ``sideeffects.signal_process`` (feature 0010 og 0011).
+    """Signals go through ``sideeffects.signal_process`` (feature 0010 and 0011).
 
-    Testen dækker ``.terminate()``, ``.kill()``, ``.send_signal()``, ``os.kill()`` og ``os.killpg()``."""
+    The test covers ``.terminate()``, ``.kill()``, ``.send_signal()``, ``os.kill()`` and ``os.killpg()``."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found = [f"{path.name}:{node.lineno} {node.func.attr}"
              for node in ast.walk(tree)

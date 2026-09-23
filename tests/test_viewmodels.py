@@ -1,4 +1,4 @@
-"""AppController binder logikken til QML (feature 0001)."""
+"""AppController binds the logic to QML (feature 0001)."""
 
 import os
 import time
@@ -43,7 +43,7 @@ def row_of(controller, path):
     for row in range(model.rowCount()):
         if model.data(model.index(row), model.PathRole) == path:
             return row
-    raise AssertionError(f"{path} findes ikke i træet")
+    raise AssertionError(f"{path} is not in the tree")
 
 
 def check_state(controller, path):
@@ -60,7 +60,7 @@ def make_controller(home, tmp_path, **kwargs):
 
 def test_add_account_logs_in_and_starts_service(app, home, tmp_path):
     popen, run = FakePopen(), RecordingRun()
-    graph = FakeGraph({ROOT_CHILDREN: {"value": [folder("Dokumenter"), folder("Billeder")]}})
+    graph = FakeGraph({ROOT_CHILDREN: {"value": [folder("Documents"), folder("Pictures")]}})
     controller = make_controller(home, tmp_path, popen=popen, run=run, opener=graph)
 
     assert controller.addAccount("Firma 2", "~/OneDrive-Firma-2") == ""
@@ -73,20 +73,20 @@ def test_add_account_logs_in_and_starts_service(app, home, tmp_path):
     assert controller.authUrl == AUTH_URL
 
     assert controller.submitRedirect(CODE_URL) is True
-    (confdir / "refresh_token").write_text("ny")
+    (confdir / "refresh_token").write_text("new")
     popen.last.exit(0)
     wait_for(controller, "choosing_folders")
 
-    # Servicen starter først, når brugeren har valgt mapper.
+    # The service starts only when the user has chosen folders.
     assert run.calls == []
     wait_for_picker(controller, "open")
-    # En ny konto har ingen sync_list. Derfor er "Synkroniser alle mapper" valgt.
+    # A new account has no sync_list. That is why "Sync all folders" is chosen.
     assert controller.syncAll is True
     controller.setSyncAll(False)
-    controller.toggleFolder(row_of(controller, "Dokumenter"))
+    controller.toggleFolder(row_of(controller, "Documents"))
     controller.acceptPicker()
     wait_for(controller, "idle")
-    assert (confdir / "sync_list").read_text() == "/Dokumenter/\n"
+    assert (confdir / "sync_list").read_text() == "/Documents/\n"
 
     assert controller.pickerState == "closed"
     assert run.calls[-1] == ["systemctl", "--user", "enable", "--now", "onedrive-firma-2.service"]
@@ -139,7 +139,7 @@ def test_closing_picker_after_login_leaves_account_without_service(app, home, tm
     popen.last.write_auth_url(AUTH_URL)
     wait_for(controller, "waiting_for_user")
     controller.submitRedirect(CODE_URL)
-    (confdir / "refresh_token").write_text("ny")
+    (confdir / "refresh_token").write_text("new")
     popen.last.exit(0)
     wait_for(controller, "choosing_folders")
     wait_for_picker(controller, "open")
@@ -155,19 +155,19 @@ def test_closing_picker_after_login_leaves_account_without_service(app, home, tm
     assert model.data(model.index(0), model.ServiceRole) == ""
 
 
-def test_picker_without_refresh_token_shows_not_logged_in(app, home, tmp_path):
+def test_picker_without_refresh_token_shows_not_signed_in(app, home, tmp_path):
     confdir = make_account_dir(home, "onedrive-x", config="")
     graph = FakeGraph()
     controller = make_controller(home, tmp_path, opener=graph)
 
     controller.openFolderPicker(str(confdir))
 
-    assert "Kontoen er ikke logget ind" in controller.message
+    assert "The account is not signed in" in controller.message
     assert controller.pickerState == "closed"
     assert graph.requests == []
 
 
-def test_picker_with_invalid_grant_asks_to_log_in_again(app, home, tmp_path):
+def test_picker_with_invalid_grant_asks_to_sign_in_again(app, home, tmp_path):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
     graph = FakeGraph(token=http_error(TOKEN_URL, 400, {"error": "invalid_grant"}))
     controller = make_controller(home, tmp_path, opener=graph)
@@ -178,16 +178,16 @@ def test_picker_with_invalid_grant_asks_to_log_in_again(app, home, tmp_path):
         controller._poll_picker()
         time.sleep(0.01)
 
-    assert "ind igen" in controller.pickerError
+    assert "Sign in to the account again" in controller.pickerError
     assert controller.folders.rowCount() == 0
 
 
 def test_picker_shows_current_selection_and_loads_subfolders(app, home, tmp_path):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
-    (confdir / "sync_list").write_text("# kommentar\n/A/\n")
+    (confdir / "sync_list").write_text("# comment\n/A/\n")
     graph = FakeGraph({
         ROOT_CHILDREN: {"value": [folder("A", child_count=1), folder("B")]},
-        "/v1.0/me/drive/items/id-A/children": {"value": [folder("Kunder")]},
+        "/v1.0/me/drive/items/id-A/children": {"value": [folder("Customers")]},
     })
     controller = make_controller(home, tmp_path, opener=graph)
 
@@ -203,7 +203,7 @@ def test_picker_shows_current_selection_and_loads_subfolders(app, home, tmp_path
     while controller.folders.rowCount() < 3 and time.monotonic() < end:
         controller._poll_picker()
         time.sleep(0.01)
-    assert check_state(controller, "A/Kunder") == 2
+    assert check_state(controller, "A/Customers") == 2
 
 
 def test_no_folders_selected_shows_error_and_writes_nothing(app, home, tmp_path):
@@ -311,7 +311,7 @@ def test_account_model_gives_initials_and_avatar_color(home):
     assert model.data(index, model.AvatarTextColorRole) == theme.avatar_text_color(account)
 
 
-# Servicestatus og genstart (feature 0004)
+# Service status and restart (feature 0004)
 
 def service_show(name, active="active", status="0", pid="4242"):
     return (f"Id={name}\nLoadState=loaded\nActiveState={active}\nSubState=x\nResult=success\n"
@@ -365,10 +365,10 @@ def test_status_appears_in_the_account_model(app, home, tmp_path):
 
     read_status_now(controller)
 
-    assert role(controller, "serviceLabel") == "Kører"
+    assert role(controller, "serviceLabel") == "Running"
     assert role(controller, "serviceTone") == "success"
-    assert role(controller, "serviceActionLabel") == "Genstart"
-    assert role(controller, "serviceSince").endswith("kl. 08:37")
+    assert role(controller, "serviceActionLabel") == "Restart"
+    assert role(controller, "serviceSince").endswith("at 08:37")
     assert role(controller, "serviceBusy") is False
 
 
@@ -405,7 +405,7 @@ def test_resync_waits_for_confirmation(app, home, tmp_path):
     clock = Clock()
     controller = make_controller(home, tmp_path, run=run, clock=clock, sleep=clock.sleep)
     read_status_now(controller)
-    assert role(controller, "serviceActionLabel") == "Genstart med resync"
+    assert role(controller, "serviceActionLabel") == "Restart with resync"
     calls_before = list(run.calls)
 
     controller.serviceAction(str(confdir))
@@ -436,7 +436,7 @@ def test_service_that_does_not_settle_shows_message(app, home, tmp_path):
     controller.serviceAction(str(confdir))
     wait_until(lambda: role(controller, "serviceBusy") is False, controller)
 
-    assert role(controller, "serviceMessage") == "Servicen svarer ikke."
+    assert role(controller, "serviceMessage") == "The service does not respond."
     assert clock.now >= 120
 
 
@@ -489,8 +489,8 @@ def test_failing_show_keeps_state_and_says_so(app, home, tmp_path):
     run.fail = {"show"}
     read_status_now(controller)
 
-    assert role(controller, "serviceLabel") == "Kører"
-    assert "Kan ikke læse status" in role(controller, "serviceMessage")
+    assert role(controller, "serviceLabel") == "Running"
+    assert "Cannot read the status" in role(controller, "serviceMessage")
 
 
 def test_status_timer_follows_window_visibility(app, home, tmp_path):
@@ -517,7 +517,7 @@ def test_no_status_is_read_before_the_window_is_visible(app, home, tmp_path):
     assert role(controller, "serviceActionLabel") == ""
 
 
-# Sikker tilstand (feature 0007)
+# Safe mode (feature 0007)
 
 CHANGING_SYSTEMCTL = {"start", "stop", "restart", "reset-failed", "daemon-reload", "enable", "disable"}
 
@@ -528,10 +528,10 @@ def test_restart_in_safe_mode_ends_without_error_and_changes_nothing(app, home, 
     underlying = ScriptedRun(outputs={"show": service_show("onedrive-x.service")})
     monkeypatch.setattr(subprocess, "run", underlying)
     clock = Clock()
-    # Controlleren får ingen falsk run. Den bruger standarden fra sideeffects.
+    # The controller gets no fake run. It uses the default from sideeffects.
     controller = make_controller(home, tmp_path, clock=clock, sleep=clock.sleep)
     read_status_now(controller)
-    assert role(controller, "serviceActionLabel") == "Genstart"
+    assert role(controller, "serviceActionLabel") == "Restart"
 
     controller.serviceAction(str(confdir))
     wait_until(lambda: role(controller, "serviceBusy") is False, controller)
@@ -542,7 +542,7 @@ def test_restart_in_safe_mode_ends_without_error_and_changes_nothing(app, home, 
     assert changing == []
 
 
-# Log ind igen med --reauth (feature 0005)
+# Sign in again with --reauth (feature 0005)
 
 def wait_for_client(controller, popen, timeout=5.0):
     end = time.monotonic() + timeout
@@ -574,17 +574,17 @@ def test_relogin_stops_service_shows_note_and_restarts(app, home, tmp_path):
     assert changing(run) == [["systemctl", "--user", "stop", "onedrive-x.service"]]
     popen.last.write_auth_url(AUTH_URL)
     wait_for(controller, "waiting_for_user")
-    assert controller.loginNote == "Servicen er stoppet, mens du logger ind"
+    assert controller.loginNote == "The service is stopped while you sign in"
 
     assert controller.submitRedirect(CODE_URL) is True
-    (confdir / "refresh_token").write_text("ny")
+    (confdir / "refresh_token").write_text("new")
     popen.last.exit(0)
     wait_for(controller, "idle")
 
     assert controller.pickerState == "closed"
     assert changing(run)[-2:] == [["systemctl", "--user", "reset-failed", "onedrive-x.service"],
                                   ["systemctl", "--user", "restart", "onedrive-x.service"]]
-    assert "onedrive-x.service kører" in controller.message
+    assert "onedrive-x.service is running" in controller.message
     assert controller.loginNote == ""
 
 
@@ -614,12 +614,12 @@ def test_relogin_of_stopped_service_does_not_start_it(app, home, tmp_path):
     wait_for(controller, "waiting_for_user")
     assert controller.loginNote == ""
     controller.submitRedirect(CODE_URL)
-    (confdir / "refresh_token").write_text("ny")
+    (confdir / "refresh_token").write_text("new")
     popen.last.exit(0)
     wait_for(controller, "idle")
 
     assert changing(run) == []
-    assert controller.message == "x er logget ind."
+    assert controller.message == "x is signed in."
 
 
 def test_failed_restart_after_cancel_is_shown(app, home, tmp_path):
@@ -631,7 +631,7 @@ def test_failed_restart_after_cancel_is_shown(app, home, tmp_path):
     popen.last.exit(1)
     wait_for(controller, "idle")
 
-    assert "Login fejlede for x" in controller.message
+    assert "Sign-in failed for x" in controller.message
     assert "Job for onedrive-x.service failed." in controller.message
     assert (confdir / "refresh_token").read_text() == "token"
 
@@ -650,10 +650,10 @@ def test_shutdown_during_relogin_restores_token_and_service(app, home, tmp_path)
     assert changing(run)[-1] == ["systemctl", "--user", "restart", "onedrive-x.service"]
 
 
-# Luk under arbejde (feature 0008)
+# Close during work (feature 0008)
 
 class Gate:
-    """Hold et systemctl-kald tilbage, indtil testen åbner for det."""
+    """Hold back a systemctl call until the test releases it."""
 
     def __init__(self, word, service=None):
         import threading
@@ -665,7 +665,7 @@ class Gate:
     def __call__(self, args):
         if self.word in args and (self.service is None or self.service in args):
             self.reached.set()
-            assert self.release.wait(5), "Testen åbnede ikke for kaldet"
+            assert self.release.wait(5), "The test did not release the call"
 
 
 def gated_run(*gates, **kwargs):
@@ -848,7 +848,7 @@ def test_window_waits_for_the_last_of_two_actions(app, home, tmp_path):
     assert emitted == [True]
 
 
-# Annullér under stop (feature 0008)
+# Cancel during stop (feature 0008)
 
 def test_cancel_while_the_service_stops_is_cancelling_at_once(app, home, tmp_path):
     gate = Gate("stop")
@@ -911,12 +911,12 @@ def test_failed_stop_after_cancel_shows_the_error(app, home, tmp_path):
     assert (confdir / "refresh_token").read_text() == "token"
 
 
-# Fremdrift (feature 0009)
+# Progress (feature 0009)
 
 UPLOAD_LINES = [
     "Scanning the local file system '~/OneDrive-X' for new data to upload ..... ",
     "New items to upload to Microsoft OneDrive: 3",
-    "Uploading new file: ./A/noter.md ... done",
+    "Uploading new file: ./A/notes.md ... done",
     "Uploading new file: ./A/budget.ods ... done",
     "Uploading new file: ./A/plan.txt ... done",
     "Sync with Microsoft OneDrive is complete",
@@ -951,18 +951,18 @@ def test_apply_sheet_shows_the_upload_while_it_runs(app, home, tmp_path):
 
     controller, confdir, run = start_change(home, tmp_path, FakeUploadPopen(UPLOAD_LINES, on_line=on_line))
     assert reached.wait(5)
-    pump(controller, lambda: controller.applySteps[1]["detail"] == "2 af 3 filer")
+    pump(controller, lambda: controller.applySteps[1]["detail"] == "2 of 3 files")
 
     assert controller.applyState == "running"
     assert [s["title"] for s in controller.applySteps] == [
-        "Stopper servicen", "Uploader lokale ændringer", "Skriver de nye regler",
-        "Flytter til papirkurven", "Starter servicen med resync"]
+        "Stopping the service", "Uploading local changes", "Writing the new rules",
+        "Moving to Trash", "Starting the service with resync"]
     assert step_states(controller) == ["done", "running", "waiting", "waiting", "waiting"]
     upload = controller.applySteps[1]
     assert upload["latest"] == "A/budget.ods"
     assert upload["determinate"] is True
     assert upload["value"] == pytest.approx(2 / 3)
-    assert upload["stateText"] == "I gang"
+    assert upload["stateText"] == "Running"
 
     release.set()
     pump(controller, lambda: controller.pickerState == "closed")
@@ -985,8 +985,8 @@ def test_apply_sheet_counts_the_trash_step(app, home, tmp_path):
     pump(controller, lambda: step_states(controller)[4] == "running")
 
     assert step_states(controller) == ["done", "done", "done", "done", "running"]
-    assert controller.applySteps[3]["detail"] == "1 af 1 sti"
-    assert controller.applySteps[1]["detail"] == "3 af 3 filer"
+    assert controller.applySteps[3]["detail"] == "1 of 1 path"
+    assert controller.applySteps[1]["detail"] == "3 of 3 files"
     gate.release.set()
     pump(controller, lambda: controller.pickerState == "closed")
 
@@ -1048,36 +1048,36 @@ def resync_controller(home, tmp_path, journal_text):
 
 
 def test_resync_progress_appears_in_the_account_model(app, home, tmp_path):
-    lines = [f"Downloading file: Ferie/IMG_{i:04}.JPG ... done" for i in range(30)]
+    lines = [f"Downloading file: Holiday/IMG_{i:04}.JPG ... done" for i in range(30)]
     controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
         "Number of items to download from Microsoft OneDrive: 120", *lines))
 
     read_status_now(controller)
 
-    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceLabel") == "Resyncing"
     assert role(controller, "serviceTone") == "warning"
     progress = role(controller, "serviceProgress")
     assert progress["visible"] is True
     assert progress["active"] is True
-    assert progress["phase"] == "Downloader filer"
-    assert progress["counter"] == "30 af 120 filer"
+    assert progress["phase"] == "Downloading files"
+    assert progress["counter"] == "30 of 120 files"
     assert progress["determinate"] is True
     assert progress["value"] == pytest.approx(0.25)
-    assert progress["latest"] == "Ferie/IMG_0029.JPG"
-    assert progress["elapsed"].startswith("Tid siden start: ")
+    assert progress["latest"] == "Holiday/IMG_0029.JPG"
+    assert progress["elapsed"].startswith("Time since start: ")
 
 
 def test_progress_job_reads_new_lines(app, home, tmp_path):
     controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
         "Number of items to download from Microsoft OneDrive: 120",
-        "Downloading file: Ferie/IMG_0000.JPG ... done"))
+        "Downloading file: Holiday/IMG_0000.JPG ... done"))
     read_status_now(controller)
-    run.outputs["journalctl"] = resync_journal("Downloading file: Ferie/IMG_0001.JPG ... done", start=2)
+    run.outputs["journalctl"] = resync_journal("Downloading file: Holiday/IMG_0001.JPG ... done", start=2)
 
     controller.refreshProgress()
     wait_until(lambda: controller._progress_job is None, controller)
 
-    assert role(controller, "serviceProgress")["counter"] == "2 af 120 filer"
+    assert role(controller, "serviceProgress")["counter"] == "2 of 120 files"
     assert [c for c in run.calls if c[0] == "journalctl"][-1][-1] == "--after-cursor=s=1;i=1"
 
 
@@ -1096,15 +1096,15 @@ def test_progress_timer_follows_window_visibility(app, home, tmp_path):
 def test_finished_resync_shows_the_result(app, home, tmp_path):
     controller, confdir, run = resync_controller(home, tmp_path, resync_journal(
         "Number of items to download from Microsoft OneDrive: 1",
-        "Downloading file: Ferie/IMG_0000.JPG ... done",
+        "Downloading file: Holiday/IMG_0000.JPG ... done",
         "Sync with Microsoft OneDrive is complete"))
 
     read_status_now(controller)
 
-    assert role(controller, "serviceLabel") == "Kører"
+    assert role(controller, "serviceLabel") == "Running"
     progress = role(controller, "serviceProgress")
     assert progress["active"] is False
-    assert progress["resultText"] == "Resync er færdig"
+    assert progress["resultText"] == "Resync complete"
 
 
 def test_service_without_resync_has_no_progress(app, home, tmp_path):
@@ -1116,7 +1116,7 @@ def test_service_without_resync_has_no_progress(app, home, tmp_path):
     assert role(controller, "serviceProgress") == {"visible": False}
 
 
-# Afbryd upload og resync (feature 0010)
+# Stop upload and resync (feature 0010)
 
 SIGTERM = 15
 
@@ -1128,7 +1128,7 @@ def cancel_controller(home, tmp_path, *, show=None, popen=None, run=None):
     run = run or ScriptedRun(outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n',
                                       "show": show or service_show("onedrive-x.service")})
     popen = popen or FakeStoppablePopen(["New items to upload to Microsoft OneDrive: 3",
-                                         "Uploading new file: ./A/noter.md ... done"])
+                                         "Uploading new file: ./A/notes.md ... done"])
     controller = make_controller(home, tmp_path, run=run, popen=popen, trash=lambda p: True,
                                  send_signal=signals)
     read_status_now(controller)
@@ -1153,7 +1153,7 @@ def test_cancel_apply_during_upload_stops_the_upload_and_changes_nothing(app, ho
     pump(controller, lambda: controller.applyState == "cancelled")
     assert signals.signals == [SIGTERM]
     assert step_states(controller) == ["done", "cancelled", "waiting", "waiting", "waiting"]
-    assert controller.applySteps[1]["stateText"] == "Afbrudt"
+    assert controller.applySteps[1]["stateText"] == "Stopped"
     assert (confdir / "sync_list").read_text() == "/A/\n/B/\n"
     assert (home / "OneDrive-X" / "B").exists()
     assert ["systemctl", "--user", "start", "onedrive-x.service"] in run.calls
@@ -1195,7 +1195,7 @@ def test_cancel_apply_after_step_2_does_nothing(app, home, tmp_path):
 
 
 def cancel_resync_controller(home, tmp_path, **run_kwargs):
-    """Kontoen står som "Resynkroniserer". Efter ``stop`` er servicen stoppet."""
+    """The account shows "Resyncing". After ``stop``, the service is stopped."""
     from test_process import add_process
     confdir = service_account(home)
     proc = tmp_path / "proc"
@@ -1226,7 +1226,7 @@ def stops(run):
 
 def test_cancel_resync_waits_for_confirmation(app, home, tmp_path):
     controller, confdir, run = cancel_resync_controller(home, tmp_path)
-    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceLabel") == "Resyncing"
     assert role(controller, "serviceCancellable") is True
 
     controller.requestCancelResync(str(confdir))
@@ -1244,14 +1244,14 @@ def test_confirmed_cancel_stops_the_service_and_shows_resync_cancelled(app, home
 
     controller.confirmCancelResync()
     wait_until(lambda: role(controller, "serviceBusy") is False, controller)
-    wait_until(lambda: role(controller, "serviceLabel") == "Resync afbrudt", controller)
+    wait_until(lambda: role(controller, "serviceLabel") == "Resync stopped", controller)
 
     assert stops(run) == [["systemctl", "--user", "stop", "onedrive-x.service"]]
     assert controller.cancelResyncAccountName == ""
     import json
     data = json.loads((home / ".config" / "skyhus" / "state.json").read_text())
     assert data["resync_cancelled"] == {"onedrive-x.service": {"invocation": INVOCATION}}
-    assert role(controller, "serviceActionLabel") == "Genstart med resync"
+    assert role(controller, "serviceActionLabel") == "Restart with resync"
     assert role(controller, "serviceCancellable") is False
     assert role(controller, "serviceMessage") == ""
 
@@ -1296,7 +1296,7 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(app, home, tmp_path, monk
     monkeypatch.setattr(subprocess, "run", underlying)
     controller = make_controller(home, tmp_path)
     read_status_now(controller)
-    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceLabel") == "Resyncing"
 
     controller.requestCancelResync(str(confdir))
     controller.confirmCancelResync()
@@ -1307,7 +1307,7 @@ def test_cancel_resync_in_safe_mode_does_not_reach_run(app, home, tmp_path, monk
     assert [c for c in underlying.calls if c[0] == "systemctl" and c[2] in CHANGING_SYSTEMCTL] == []
     assert not (home / ".config" / "skyhus" / "state.json").exists()
     read_status_now(controller)
-    assert role(controller, "serviceLabel") == "Resynkroniserer"
+    assert role(controller, "serviceLabel") == "Resyncing"
 
 
 def test_cancel_resync_is_ignored_when_the_service_is_not_resyncing(app, home, tmp_path):

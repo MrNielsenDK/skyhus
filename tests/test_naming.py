@@ -1,4 +1,4 @@
-"""Visningsnavne og slugs (feature 0001)."""
+"""Display names and slugs (feature 0001)."""
 
 import pytest
 
@@ -24,8 +24,8 @@ def test_slug_firma_2():
 
 
 def test_slug_danish_letters():
-    assert slugify("Søstrenes Æbler") == "soestrenes-aebler"
-    assert slugify("Ålborg Ø") == "aalborg-oe"
+    assert slugify("Søstrenes Æbler") == "soestrenes-aebler"  # allow-danish: input that slugify must accept
+    assert slugify("Ålborg Ø") == "aalborg-oe"  # allow-danish: input that slugify must accept
 
 
 def test_new_account_paths(home):
@@ -82,7 +82,7 @@ def test_name_without_usable_letters_fails(home):
 
 
 def test_name_skyhus_gives_its_own_confdir(home):
-    """Applikationens mappe ``~/.config/skyhus`` kan ikke forveksles med en konto (feature 0012)."""
+    """The folder ``~/.config/skyhus`` of the application cannot be mistaken for an account (feature 0012)."""
     plan = plan_new_account("Skyhus", [], home)
 
     assert plan.confdir == home / ".config" / "onedrive-skyhus"

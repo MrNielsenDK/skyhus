@@ -1,11 +1,11 @@
-"""Mapperne på OneDrive, hentet direkte fra Microsoft Graph.
+"""The folders on OneDrive, fetched directly from Microsoft Graph.
 
-Applikationen bruger kontoens ``refresh_token`` til et access-token. Svaret
-fra Microsoft indeholder også en ny ``refresh_token``. Applikationen gemmer
-den ikke. Klienten ejer filen ``refresh_token`` i config-mappen.
+The application uses the ``refresh_token`` of the account to get an access token.
+The response from Microsoft also contains a new ``refresh_token``. The application
+does not save it. The client owns the file ``refresh_token`` in the config folder.
 
-Kaldene bruger kun standardbiblioteket. ``opener`` svarer til
-``urllib.request.urlopen``, så testene kan give optagne svar.
+The calls use only the standard library. ``opener`` is the same as
+``urllib.request.urlopen``, so the tests can give recorded responses.
 """
 
 from __future__ import annotations
@@ -29,26 +29,26 @@ log = logging.getLogger(__name__)
 TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 GRAPH_URL = "https://graph.microsoft.com/v1.0"
 CLIENT_ID = "d50ca740-c83f-4d1b-b616-12c519384f0c"
-"""Klientens egen ``client_id``. Kontoens ``refresh_token`` hører til den."""
+"""The ``client_id`` of the client. The ``refresh_token`` of the account belongs to it."""
 SCOPES = "Files.ReadWrite Files.ReadWrite.All Sites.ReadWrite.All offline_access"
 READ_ONLY_SCOPES = "Files.Read Files.Read.All Sites.Read.All offline_access"
-"""Klientens scopes, når ``read_only_auth_scope = "true"``."""
+"""The scopes of the client when ``read_only_auth_scope = "true"``."""
 TIMEOUT_SECONDS = 30
 TOKEN_MARGIN_SECONDS = 60
 
 
 class GraphError(RuntimeError):
-    """Et kald til Microsoft fejlede. Beskeden kan vises for brugeren."""
+    """A call to Microsoft failed. The message can go to the user."""
 
 
 class NotLoggedInError(GraphError):
     def __init__(self) -> None:
-        super().__init__("Kontoen er ikke logget ind.")
+        super().__init__("The account is not signed in.")
 
 
 class LoginRequiredError(GraphError):
     def __init__(self, detail: str = "") -> None:
-        message = "Microsoft afviste kontoens login. Log kontoen ind igen."
+        message = "Microsoft refused the sign-in of the account. Sign in to the account again."
         super().__init__(f"{message}\n{detail}".strip())
 
 
@@ -57,7 +57,7 @@ class Folder:
     id: str
     name: str
     path: str
-    """Stien fra roden uden ``/`` i enderne, fx ``Arbejde/Kunder``."""
+    """The path from the root without ``/`` at the ends, for example ``Work/Customers``."""
     has_children: bool
 
 
@@ -80,7 +80,7 @@ class GraphClient:
             return self._token
 
     def list_folders(self, item_id: str = "", parent_path: str = "") -> list[Folder]:
-        """Undermapperne i roden eller i mappen ``item_id``. Filer er ikke med."""
+        """The subfolders in the root or in the folder ``item_id``. Files are not included."""
         if item_id:
             url = f"{GRAPH_URL}/me/drive/items/{quote(item_id, safe='')}/children"
         else:
@@ -102,7 +102,7 @@ class GraphClient:
             url = page.get("@odata.nextLink", "")
         return sorted(folders, key=lambda f: f.name.casefold())
 
-    # Hjælpefunktioner
+    # Helper functions
 
     def _read_refresh_token(self) -> str:
         try:
@@ -134,7 +134,7 @@ class GraphClient:
             raise GraphError(_describe(exc, body)) from None
         token = answer.get("access_token")
         if not isinstance(token, str) or not token:
-            raise GraphError("Microsoft sendte ikke et access-token.")
+            raise GraphError("Microsoft did not send an access token.")
         try:
             lifetime = float(answer.get("expires_in", 0))
         except (TypeError, ValueError):
@@ -157,11 +157,11 @@ class GraphClient:
         except urllib.error.HTTPError:
             raise
         except urllib.error.URLError as exc:
-            raise GraphError(f"Kan ikke kontakte Microsoft: {exc.reason}") from None
+            raise GraphError(f"Cannot connect to Microsoft: {exc.reason}") from None
         except (OSError, ValueError) as exc:
-            raise GraphError(f"Ugyldigt svar fra Microsoft: {exc}") from None
+            raise GraphError(f"Not a valid response from Microsoft: {exc}") from None
         if not isinstance(data, dict):
-            raise GraphError("Ugyldigt svar fra Microsoft.")
+            raise GraphError("Not a valid response from Microsoft.")
         return data
 
 
@@ -174,11 +174,11 @@ def _error_body(exc: urllib.error.HTTPError) -> dict:
         return {}
     error = data.get("error")
     if isinstance(error, dict):
-        # Graph svarer med {"error": {"code": ..., "message": ...}}.
+        # Graph responds with {"error": {"code": ..., "message": ...}}.
         return {"error": error.get("code", ""), "error_description": error.get("message", "")}
     return data
 
 
 def _describe(exc: urllib.error.HTTPError, body: dict) -> str:
     detail = body.get("error_description") or body.get("error") or exc.reason
-    return f"Microsoft svarede {exc.code}: {detail}"
+    return f"Microsoft responded {exc.code}: {detail}"

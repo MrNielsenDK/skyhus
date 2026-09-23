@@ -1,28 +1,28 @@
-"""Klientens regler for, hvilke stier den synkroniserer.
+"""The client's rules for which paths it syncs.
 
-``RuleSet`` samler reglerne i ``sync_list`` og felterne ``skip_dir``,
-``skip_file``, ``skip_dotfiles`` og ``sync_root_files`` fra ``config``.
-``includes()`` svarer på, om klienten synkroniserer en sti.
+``RuleSet`` collects the rules in ``sync_list`` and the fields ``skip_dir``,
+``skip_file``, ``skip_dotfiles`` and ``sync_root_files`` from ``config``.
+``includes()`` tells if the client syncs a path.
 
-Applikationen tolker ``sync_list`` efter klientens dokumentation i
-``/usr/share/doc/onedrive/usage.md.gz``:
+The application interprets ``sync_list`` as the client's documentation in
+``/usr/share/doc/onedrive/usage.md.gz`` describes:
 
-- En regel med ``!`` eller ``-`` foran udelukker.
-- En regel med ``/`` foran gælder kun fra roden. Andre regler gælder overalt.
-- En regel med ``/`` bagerst gælder kun mapper.
-- ``*`` gælder inden for ét led. ``**`` gælder over flere led.
-- Udelukkelse vinder over inkludering.
+- A rule with a leading ``!`` or ``-`` excludes.
+- A rule with a leading ``/`` applies only from the root. Other rules apply anywhere.
+- A rule with a trailing ``/`` applies only to folders.
+- ``*`` applies within one segment. ``**`` applies across several segments.
+- Exclusion wins over inclusion.
 
-En regel gælder den sti, den passer til, og alt under stien. ``X/*`` gælder
-også mappen ``X`` selv, som i klienten.
+A rule applies to the path it matches and to everything below that path.
+``X/*`` also applies to the folder ``X`` itself, as in the client.
 
-Klienten udelukker lidt mere end dokumentationen for en udelukkende regel
-uden ``/`` foran. Den udelukker alle stier, der indeholder reglens tekst.
-``RuleSet`` gør det samme. Så kommer en sti, som klienten måske ikke
-synkroniserede, ikke i papirkurven.
+The client excludes a bit more than the documentation says for an excluding
+rule without a leading ``/``. It excludes all paths that contain the text of
+the rule. ``RuleSet`` does the same. Then a path that the client maybe did not
+sync does not go to Trash.
 
-Sammenligningen i ``sync_list`` er følsom for store og små bogstaver, som i
-klienten. ``skip_dir`` og ``skip_file`` er ikke.
+The comparison in ``sync_list`` is case-sensitive, as in the client.
+``skip_dir`` and ``skip_file`` are not.
 """
 
 from __future__ import annotations
@@ -40,11 +40,11 @@ _GLOBBING = "**"
 
 
 class UnknownRuleError(ValueError):
-    """Applikationen kan ikke tolke en regel i ``sync_list``."""
+    """The application cannot interpret a rule in ``sync_list``."""
 
     def __init__(self, rule: str):
         self.rule = rule
-        super().__init__(f"Applikationen kan ikke tolke reglen \"{rule}\" i sync_list.")
+        super().__init__(f"Skyhus cannot interpret the rule \"{rule}\" in sync_list.")
 
 
 @dataclass(frozen=True)
@@ -55,17 +55,17 @@ class _Rule:
     dir_only: bool
     segments: tuple[str, ...]
     body: str
-    """Reglen uden ``!`` eller ``-`` foran."""
+    """The rule without the leading ``!`` or ``-``."""
 
 
 def _parse_rule(line: str) -> _Rule | None:
-    """Tolk 1 linje. Tomme linjer og kommentarer giver ``None``."""
+    """Interpret 1 line. Empty lines and comments give ``None``."""
     text = line.strip()
     if not text or text[0] in "#;":
         return None
     exclude = text[0] in "!-"
     body = text[1:] if exclude else text
-    # Klienten afviser selv "/", "/*" og regler med "./" foran.
+    # The client itself rejects "/", "/*" and rules with a leading "./".
     if body in ("", "/", "/*") or body.startswith("./"):
         raise UnknownRuleError(text)
     rooted = body.startswith("/")
@@ -93,7 +93,7 @@ def _segment_matches(pattern: str, name: str) -> bool:
 
 
 def _match(segments: tuple[str, ...], parts: tuple[str, ...]) -> bool:
-    """Om ``segments`` passer til alle led i ``parts``."""
+    """Whether ``segments`` matches all segments in ``parts``."""
     if not segments:
         return not parts
     head = segments[0]
@@ -105,7 +105,7 @@ def _match(segments: tuple[str, ...], parts: tuple[str, ...]) -> bool:
 
 
 def _could_match_below(segments: tuple[str, ...], parts: tuple[str, ...]) -> bool:
-    """Om ``segments`` kan passe til ``parts`` eller en sti under ``parts``."""
+    """Whether ``segments`` can match ``parts`` or a path below ``parts``."""
     if not parts or not segments:
         return True
     if segments[0] == _GLOBBING:
@@ -114,16 +114,16 @@ def _could_match_below(segments: tuple[str, ...], parts: tuple[str, ...]) -> boo
 
 
 def _hits(rule: _Rule, parts: tuple[str, ...], is_dir: bool) -> bool:
-    """Om reglen passer til stien eller til en af dens overmapper."""
+    """Whether the rule matches the path or one of its parent folders."""
     starts = [0] if rule.rooted else range(len(parts))
     for start in starts:
         for end in range(start + 1, len(parts) + 1):
             sub = parts[start:end]
-            # Er det kun en overmappe, der passer, er det en mappe.
+            # If only a parent folder matches, it is a folder.
             folder = is_dir or end < len(parts)
             if _match(rule.segments, sub) and (folder or not rule.dir_only):
                 return True
-            # "X/*" gælder også mappen X selv.
+            # "X/*" also applies to the folder X itself.
             if (folder and len(rule.segments) > 1 and rule.segments[-1] == "*"
                     and _match(rule.segments[:-1], sub)):
                 return True
@@ -136,10 +136,10 @@ def _client_regex(body: str) -> re.Pattern:
 
 
 def _client_excludes(rule: _Rule, parts: tuple[str, ...]) -> bool:
-    """Klientens egen, bredere test for en udelukkende regel uden ``/`` foran.
+    """The client's own, wider test for an excluding rule without a leading ``/``.
 
-    Klienten fjerner ``/`` og ``*`` bagerst og leder efter teksten i stien.
-    Den prøver også reglen som et regulært udtryk, hvor ``*`` er ``.*``.
+    The client removes the trailing ``/`` and ``*`` and looks for the text in the path.
+    It also tries the rule as a regular expression where ``*`` is ``.*``.
     """
     path = "/" + "/".join(parts)
     stripped = rule.body.rstrip("/*")
@@ -149,11 +149,11 @@ def _client_excludes(rule: _Rule, parts: tuple[str, ...]) -> bool:
 
 
 def is_skipped(rel: str, skip_dirs: Iterable[str], strict: bool = False) -> bool:
-    """Om mappen ``rel`` passer til et mønster i ``skip_dir``.
+    """Whether the folder ``rel`` matches a pattern in ``skip_dir``.
 
-    Et mønster med ``/`` gælder hele stien fra roden. Et mønster uden ``/``
-    gælder mappens navn, uanset hvor mappen ligger. Mønstrene er ikke
-    følsomme for store og små bogstaver, som i klienten.
+    A pattern with ``/`` applies to the full path from the root. A pattern
+    without ``/`` applies to the folder name, wherever the folder is. The
+    patterns are not case-sensitive, as in the client.
     """
     rel_cf = rel.casefold()
     name_cf = rel_cf.rsplit("/", 1)[-1]
@@ -171,17 +171,17 @@ def is_skipped(rel: str, skip_dirs: Iterable[str], strict: bool = False) -> bool
 
 @lru_cache(maxsize=1024)
 def _wildcard_regex(pattern: str) -> re.Pattern:
-    """Et mønster fra ``skip_file``. ``*`` og ``?`` gælder alle tegn, som i klienten."""
+    """A pattern from ``skip_file``. ``*`` and ``?`` match all characters, as in the client."""
     text = "".join(".*" if c == "*" else "." if c == "?" else re.escape(c) for c in pattern)
     return re.compile(text, re.IGNORECASE)
 
 
 class RuleSet:
-    """Alle regler, der afgør, om klienten synkroniserer en sti.
+    """All rules that decide if the client syncs a path.
 
-    ``folders`` er mappevælgerens mapper uden ``/`` i enderne, eller ``None``,
-    hvis ``sync_list`` ikke findes. ``unknown`` er de andre linjer i
-    ``sync_list``. En regel, som applikationen ikke kan tolke, giver
+    ``folders`` are the folders from the folder picker without ``/`` at the ends,
+    or ``None`` if ``sync_list`` does not exist. ``unknown`` are the other lines
+    in ``sync_list``. A rule that the application cannot interpret gives
     ``UnknownRuleError``.
     """
 
@@ -201,7 +201,7 @@ class RuleSet:
                 rule = _parse_rule(line)
                 if rule is not None:
                     rules.append(rule)
-        # Uden sync_list, eller uden regler i den, synkroniserer klienten alt.
+        # Without sync_list, or without rules in it, the client syncs everything.
         self._all = not rules
         self._includes = tuple(r for r in rules if not r.exclude)
         self._excludes = tuple(r for r in rules if r.exclude)
@@ -210,7 +210,7 @@ class RuleSet:
         return (self.skip_dirs, self.skip_dir_strict, self.skip_files, self.skip_dotfiles)
 
     def _filtered(self, parts: tuple[str, ...], is_dir: bool) -> bool:
-        """Om ``skip_dotfiles``, ``skip_dir`` eller ``skip_file`` udelukker stien."""
+        """Whether ``skip_dotfiles``, ``skip_dir`` or ``skip_file`` excludes the path."""
         if self.skip_dotfiles and any(part.startswith(".") for part in parts):
             return True
         if self.skip_dirs:
@@ -234,10 +234,10 @@ class RuleSet:
         return False
 
     def includes(self, rel: str, is_dir: bool) -> bool:
-        """Om klienten synkroniserer stien ``rel`` direkte.
+        """Whether the client syncs the path ``rel`` directly.
 
-        En mappe, der kun er en overmappe til en inkluderet sti, tæller ikke.
-        Brug ``may_contain()`` til den.
+        A folder that is only a parent folder of an included path does not count.
+        Use ``may_contain()`` for that.
         """
         parts = tuple(rel.split("/"))
         if self._filtered(parts, is_dir):
@@ -251,7 +251,7 @@ class RuleSet:
         return any(_hits(rule, parts, is_dir) for rule in self._includes)
 
     def may_contain(self, rel: str) -> bool:
-        """Om klienten kan synkronisere mappen ``rel`` eller en sti i den."""
+        """Whether the client can sync the folder ``rel`` or a path in it."""
         parts = tuple(rel.split("/"))
         if self._filtered(parts, True):
             return False
@@ -263,11 +263,11 @@ class RuleSet:
                    for rule in self._includes)
 
     def keeps_all_below(self, rel: str, old: RuleSet) -> bool:
-        """Om ingen sti under mappen ``rel`` går fra ``old`` til ikke at være med her.
+        """Whether no path below the folder ``rel`` goes from included in ``old`` to not included here.
 
-        Det gælder, når disse regler inkluderer mappen, og når de ikke
-        udelukker mere end ``old``. En sti under mappen, som disse regler
-        ikke inkluderer, udelukker ``old`` så også.
+        This is true when these rules include the folder and do not exclude
+        more than ``old``. A path below the folder that these rules do not
+        include is then also excluded by ``old``.
         """
         return (self._filters() == old._filters()
                 and set(self._excludes) <= set(old._excludes)

@@ -1,8 +1,8 @@
-"""Læs og skriv ``~/.config/skyhus/accounts.json``.
+"""Read and write ``~/.config/skyhus/accounts.json``.
 
-Filen gemmer visningsnavn, ``confdir`` og ``service`` for hver konto.
-Mapperne på disken bestemmer, hvilke konti der findes. Registeret giver
-dem kun navne.
+The file keeps the display name, ``confdir`` and ``service`` for each account.
+The folders on disk decide which accounts exist. The registry only gives
+them names.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 
 def default_name(confdir: Path) -> str:
-    """Navnet for en konto uden en post i registeret."""
+    """The name for an account without an entry in the registry."""
     name = Path(confdir).name
     if name == DEFAULT_CONFDIR_NAME:
         return "OneDrive"
@@ -43,11 +43,11 @@ class Registry:
         except FileNotFoundError:
             return
         except (OSError, ValueError) as exc:
-            log.warning("Kan ikke læse %s: %s", self.path, exc)
+            log.warning("Cannot read %s: %s", self.path, exc)
             return
         accounts = data.get("accounts") if isinstance(data, dict) else None
         if not isinstance(accounts, list):
-            log.warning("Ukendt form i %s", self.path)
+            log.warning("Unknown format in %s", self.path)
             return
         for entry in accounts:
             if not isinstance(entry, dict):

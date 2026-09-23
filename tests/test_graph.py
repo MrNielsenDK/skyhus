@@ -1,6 +1,6 @@
-"""Mapper fra Microsoft Graph (feature 0002).
+"""Folders from Microsoft Graph (feature 0002).
 
-Testene kalder ikke Microsoft. ``FakeGraph`` giver optagne svar.
+The tests do not call Microsoft. ``FakeGraph`` gives recorded responses.
 """
 
 from urllib.parse import parse_qs
@@ -25,20 +25,20 @@ ROOT_CHILDREN = "/v1.0/me/drive/root/children"
 def test_returns_only_folders(home):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
     graph = FakeGraph({ROOT_CHILDREN: {"value": [
-        folder("Dokumenter", child_count=2), file_item("noter.txt"), folder("Billeder")]}})
+        folder("Documents", child_count=2), file_item("notes.txt"), folder("Pictures")]}})
 
     folders = GraphClient(confdir, opener=graph).list_folders()
 
-    assert [f.name for f in folders] == ["Billeder", "Dokumenter"]
+    assert [f.name for f in folders] == ["Documents", "Pictures"]
     by_name = {f.name: f for f in folders}
-    assert by_name["Dokumenter"].path == "Dokumenter"
-    assert by_name["Dokumenter"].has_children is True
-    assert by_name["Billeder"].has_children is False
+    assert by_name["Documents"].path == "Documents"
+    assert by_name["Documents"].has_children is True
+    assert by_name["Pictures"].has_children is False
 
 
 def test_follows_next_link(home):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
-    next_url = f"{GRAPH_URL}/me/drive/root/children?$skiptoken=side2"
+    next_url = f"{GRAPH_URL}/me/drive/root/children?$skiptoken=page2"
     graph = FakeGraph({
         ROOT_CHILDREN: {"value": [folder("A")], "@odata.nextLink": next_url},
         next_url: {"value": [folder("B")]},
@@ -52,18 +52,18 @@ def test_follows_next_link(home):
 
 def test_children_of_a_folder_get_full_path(home):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
-    graph = FakeGraph({"/v1.0/me/drive/items/id-Arbejde/children": {"value": [folder("Kunder")]}})
+    graph = FakeGraph({"/v1.0/me/drive/items/id-Work/children": {"value": [folder("Customers")]}})
     client = GraphClient(confdir, opener=graph)
 
-    folders = client.list_folders("id-Arbejde", "Arbejde")
+    folders = client.list_folders("id-Work", "Work")
 
-    assert [f.path for f in folders] == ["Arbejde/Kunder"]
-    assert graph.graph_requests()[0].get_header("Authorization") == "Bearer adgang"
+    assert [f.path for f in folders] == ["Work/Customers"]
+    assert graph.graph_requests()[0].get_header("Authorization") == "Bearer access"
 
 
 def test_token_call_leaves_refresh_token_unchanged(home):
     confdir = make_account_dir(home, "onedrive-x", config="")
-    original = b"gammelt-token\xc3\xa6\n"
+    original = b"old-token\xc3\xa9\n"
     (confdir / "refresh_token").write_bytes(original)
     graph = FakeGraph({ROOT_CHILDREN: {"value": []}})
 
@@ -75,7 +75,7 @@ def test_token_call_leaves_refresh_token_unchanged(home):
     form = parse_qs(token_request.data.decode())
     assert form["client_id"] == [CLIENT_ID]
     assert form["grant_type"] == ["refresh_token"]
-    assert form["refresh_token"] == ["gammelt-tokenæ"]
+    assert form["refresh_token"] == ["old-tokené"]
     assert "offline_access" in form["scope"][0].split()
     assert "Files.ReadWrite.All" in form["scope"][0].split()
 
@@ -84,7 +84,7 @@ def test_missing_refresh_token_means_not_logged_in(home):
     confdir = make_account_dir(home, "onedrive-x", config="")
     graph = FakeGraph()
 
-    with pytest.raises(NotLoggedInError, match="Kontoen er ikke logget ind"):
+    with pytest.raises(NotLoggedInError, match="The account is not signed in"):
         GraphClient(confdir, opener=graph).list_folders()
 
     assert graph.requests == []
@@ -93,7 +93,7 @@ def test_missing_refresh_token_means_not_logged_in(home):
 def test_invalid_grant_asks_user_to_log_in_again(home):
     confdir = make_account_dir(home, "onedrive-x", config="", refresh_token=True)
     graph = FakeGraph(token=http_error(TOKEN_URL, 400, {
-        "error": "invalid_grant", "error_description": "AADSTS70000: token udløbet"}))
+        "error": "invalid_grant", "error_description": "AADSTS70000: token expired"}))
 
-    with pytest.raises(LoginRequiredError, match="(?i)log .*ind igen"):
+    with pytest.raises(LoginRequiredError, match="(?i)sign in .*again"):
         GraphClient(confdir, opener=graph).list_folders()

@@ -1,4 +1,4 @@
-"""Start med --resync via en midlertidig drop-in (feature 0002)."""
+"""Start with --resync via a temporary drop-in (feature 0002)."""
 
 import pytest
 
@@ -56,7 +56,7 @@ def test_restart_with_resync_uses_drop_in_and_removes_it(home):
         ["systemctl", "--user", "daemon-reload"],
     ]
     assert seen["drop_in"] == (
-        "# Midlertidig. Skyhus fjerner filen efter genstart.\n"
+        "# Temporary. Skyhus removes this file after the restart.\n"
         "[Service]\nExecStart=\n"
         'ExecStart=/usr/bin/onedrive --monitor --confdir="%h/.config/onedrive-privat" --resync --resync-auth\n')
     assert not drop_in(home).exists()
@@ -97,10 +97,10 @@ def test_stop_and_start(home):
     ]
 
 
-# Start, Genstart og ventetiden (feature 0004)
+# Start, Restart and the wait (feature 0004)
 
 class FakeClock:
-    """Et ur, der går 1 sekund frem, hver gang koden sover."""
+    """A clock that goes 1 second forward each time the code sleeps."""
 
     def __init__(self):
         self.now = 0.0
@@ -115,7 +115,7 @@ class FakeClock:
 
 
 def states(*keys):
-    """En read_state, der giver tilstandene i rækkefølge og bliver ved den sidste."""
+    """A read_state that gives the states in order and then stays at the last one."""
     remaining = list(keys)
 
     def read_state():
@@ -174,7 +174,7 @@ def test_needs_resync_also_ends_the_wait(home):
 def test_service_that_never_settles_times_out_after_120_seconds(home):
     clock = FakeClock()
 
-    with pytest.raises(service_control.ServiceTimeoutError, match="Servicen svarer ikke"):
+    with pytest.raises(service_control.ServiceTimeoutError, match="The service does not respond"):
         service_control.perform("restart", "onedrive-privat.service", states("starting"),
                                 home=home, run=ScriptedRun(), clock=clock, sleep=clock.sleep)
 
@@ -212,7 +212,7 @@ def test_resync_restarts_with_flags_and_removes_drop_in(home):
     assert not drop_in(home).exists()
 
 
-# Afbryd resync (feature 0010)
+# Stop resync (feature 0010)
 
 SHOW_RESYNC = ("Id=onedrive-privat.service\nLoadState=loaded\nActiveState=active\nSubState=running\n"
                "MainPID=4242\nInvocationID=abc123\n")
@@ -270,11 +270,11 @@ def test_cancel_resync_in_safe_mode_writes_no_mark(home, monkeypatch, caplog):
 
     assert service_state.cancelled_resyncs(home) == {}
     assert not (home / ".config" / "skyhus" / "state.json").exists()
-    assert "SAFE MODE: skriver ikke markeringen for onedrive-privat.service" in caplog.text
+    assert "SAFE MODE: not writing the mark for onedrive-privat.service" in caplog.text
 
 
 def test_cancel_resync_in_safe_mode_with_sideeffects_run_writes_no_mark(home, monkeypatch):
-    """Controlleren giver ``sideeffects.run`` videre. Det tæller ikke som en injiceret ``run``."""
+    """The controller passes on ``sideeffects.run``. That does not count as an injected ``run``."""
     import subprocess
     from skyhus import service_state, sideeffects
     monkeypatch.setattr(subprocess, "run", ScriptedRun(outputs={"show": SHOW_RESYNC}))

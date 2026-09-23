@@ -1,21 +1,21 @@
-"""Sikker tilstand (feature 0007) og de funktioner, der ændrer systemet.
+"""Safe mode (feature 0007) and the functions that change the system.
 
-Resten af applikationen kalder ``run``, ``popen`` og ``trash`` her i stedet
-for ``subprocess.run``, ``subprocess.Popen`` og ``QFile.moveToTrash``. Før en
-fil bliver skrevet eller slettet, kalder koden ``guard_write(path)``. Et
-signal til en proces går gennem ``signal_process`` (feature 0010).
+The rest of the application calls ``run``, ``popen`` and ``trash`` here instead
+of ``subprocess.run``, ``subprocess.Popen`` and ``QFile.moveToTrash``. Before a
+file is written or deleted, the code calls ``guard_write(path)``. A
+signal to a process goes through ``signal_process`` (feature 0010).
 
-I sikker tilstand ændrer applikationen intet på systemet. En blokeret
-handling giver en linje i loggen, der starter med ``SAFE MODE:``.
+In safe mode the application changes nothing on the system. A blocked
+action gives a line in the log that starts with ``SAFE MODE:``.
 
-Sikker tilstand er slået til, når mindst 1 af disse betingelser gælder:
+Safe mode is on when at least 1 of these conditions applies:
 
-- miljøvariablen ``SKYHUS_SAFE_MODE`` eller den gamle ``ONEDRIVE_GUI_SAFE_MODE`` er ``1``,
-- applikationen er startet med ``--safe``,
-- ``HOME`` er en anden mappe end brugerens rigtige hjemmemappe.
+- the environment variable ``SKYHUS_SAFE_MODE`` or the old ``ONEDRIVE_GUI_SAFE_MODE`` is ``1``,
+- the application was started with ``--safe``,
+- ``HOME`` is a different folder than the real home folder of the user.
 
-Resultatet ligger fast, fra applikationen starter. ``init()`` vurderer
-betingelserne. Kaldes ``safe_mode()`` før ``init()``, bruger den ``sys.argv``.
+The result is fixed from when the application starts. ``init()`` checks
+the conditions. If ``safe_mode()`` is called before ``init()``, it uses ``sys.argv``.
 """
 
 from __future__ import annotations
@@ -35,9 +35,9 @@ log = logging.getLogger(__name__)
 
 ENV_VAR = "SKYHUS_SAFE_MODE"
 LEGACY_ENV_VAR = "ONEDRIVE_GUI_SAFE_MODE"
-"""Det gamle navn fra før feature 0012. Et gammelt script må ikke køre i skarp tilstand."""
+"""The old name from before feature 0012. An old script must not run in normal mode."""
 FLAG = "--safe"
-NOT_STARTED = "Sikker tilstand: {name} blev ikke startet"
+NOT_STARTED = "Safe mode: {name} was not started"
 
 READ_ONLY_SYSTEMCTL = frozenset({"show", "cat", "status", "is-active"})
 READ_ONLY_PROGRAMS = frozenset({"journalctl"})
@@ -46,7 +46,7 @@ _state: bool | None = None
 
 
 def real_home() -> Path:
-    """Brugerens rigtige hjemmemappe. Den afhænger ikke af ``HOME``."""
+    """The real home folder of the user. It does not depend on ``HOME``."""
     return Path(pwd.getpwuid(os.getuid()).pw_dir)
 
 
@@ -55,7 +55,7 @@ def _same_dir(a: str, b: Path) -> bool:
 
 
 def reasons(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None = None) -> list[str]:
-    """De betingelser, der slår sikker tilstand til. En tom liste betyder normal tilstand."""
+    """The conditions that turn on safe mode. An empty list means normal mode."""
     argv = sys.argv if argv is None else argv
     environ = os.environ if environ is None else environ
     found = []
@@ -66,22 +66,22 @@ def reasons(argv: Sequence[str] | None = None, environ: Mapping[str, str] | None
         found.append(FLAG)
     home = environ.get("HOME")
     if home and not _same_dir(home, real_home()):
-        found.append(f"HOME={home} er ikke den rigtige hjemmemappe {real_home()}")
+        found.append(f"HOME={home} is not the real home folder {real_home()}")
     return found
 
 
 def init(argv: Sequence[str] | None = None) -> bool:
-    """Vurdér betingelserne én gang og lås resultatet fast."""
+    """Check the conditions one time and lock the result."""
     global _state
     found = reasons(argv)
     _state = bool(found)
     if _state:
-        log.warning("SAFE MODE: sikker tilstand er slået til (%s)", "; ".join(found))
+        log.warning("SAFE MODE: safe mode is on (%s)", "; ".join(found))
     return _state
 
 
 def reset() -> None:
-    """Glem resultatet. Kun testene bruger funktionen."""
+    """Forget the result. Only the tests use this function."""
     global _state
     _state = None
 
@@ -113,11 +113,11 @@ def _allowed(cmd: list[str]) -> bool:
 
 
 def _not_started(cmd: list[str]) -> str:
-    return NOT_STARTED.format(name=_program(cmd) or "kommandoen")
+    return NOT_STARTED.format(name=_program(cmd) or "the command")
 
 
 def run(args, **kwargs) -> subprocess.CompletedProcess:
-    """``subprocess.run``, der følger reglerne for sikker tilstand."""
+    """``subprocess.run`` that follows the rules for safe mode."""
     if safe_mode():
         cmd = _command(args)
         if not _allowed(cmd):
@@ -133,7 +133,7 @@ def run(args, **kwargs) -> subprocess.CompletedProcess:
 
 
 class BlockedProcess:
-    """Svarer til en ``Popen``-proces, der stoppede med exit-kode 1 med det samme."""
+    """The same as a ``Popen`` process that stopped with exit code 1 immediately."""
 
     def __init__(self, args, message: str, stdout=None):
         self.args = args
@@ -168,7 +168,7 @@ class BlockedProcess:
 
 
 def popen(args, **kwargs):
-    """``subprocess.Popen``, der følger reglerne for sikker tilstand."""
+    """``subprocess.Popen`` that follows the rules for safe mode."""
     if safe_mode():
         cmd = _command(args)
         if not _allowed(cmd):
@@ -185,27 +185,27 @@ def _signal_name(sig) -> str:
 
 
 def signal_process(process, sig) -> None:
-    """Send ``sig`` til ``process``. I sikker tilstand sender funktionen intet.
+    """Send ``sig`` to ``process``. In safe mode the function sends nothing.
 
-    I sikker tilstand starter ``popen`` ikke ``onedrive``. Der er derfor ingen
-    rigtig proces at stoppe. En proces, der allerede er stoppet, giver ingen fejl.
+    In safe mode ``popen`` does not start ``onedrive``. So there is no
+    real process to stop. A process that is already stopped gives no error.
     """
     name = _signal_name(sig)
     pid = getattr(process, "pid", "?")
     if safe_mode():
-        log.warning("SAFE MODE: sender ikke %s til PID %s", name, pid)
+        log.warning("SAFE MODE: not sending %s to PID %s", name, pid)
         return
-    log.info("Sender %s til PID %s", name, pid)
+    log.info("Sending %s to PID %s", name, pid)
     try:
         process.send_signal(sig)
     except ProcessLookupError:
-        log.info("PID %s er allerede stoppet", pid)
+        log.info("PID %s is already stopped", pid)
 
 
 def trash(path: Path) -> bool:
-    """Flyt ``path`` til papirkurven. I sikker tilstand flytter funktionen intet."""
+    """Move ``path`` to Trash. In safe mode the function moves nothing."""
     if safe_mode():
-        log.warning("SAFE MODE: flytter ikke %s til papirkurven", path)
+        log.warning("SAFE MODE: not moving %s to Trash", path)
         return True
     from PySide6.QtCore import QFile
     return bool(QFile.moveToTrash(str(path)))
@@ -216,10 +216,10 @@ def _is_under(path: str, parent: str) -> bool:
 
 
 def guard_write(path: Path | str) -> bool:
-    """Må applikationen skrive eller slette ``path``? Et nej står i loggen.
+    """Can the application write or delete ``path``? A no goes in the log.
 
-    I sikker tilstand er svaret nej for alt under den rigtige hjemmemappe,
-    undtagen ``~/.config/skyhus/``.
+    In safe mode the answer is no for everything under the real home folder,
+    except ``~/.config/skyhus/``.
     """
     if not safe_mode():
         return True
@@ -227,6 +227,6 @@ def guard_write(path: Path | str) -> bool:
     home = os.path.realpath(real_home())
     allowed = os.path.join(home, ".config", GUI_DIR_NAME)
     if _is_under(target, home) and not _is_under(target, allowed):
-        log.warning("SAFE MODE: skriver ikke %s", path)
+        log.warning("SAFE MODE: not writing %s", path)
         return False
     return True

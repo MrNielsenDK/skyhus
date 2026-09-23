@@ -1,16 +1,16 @@
-"""Find de lokale stier, der forsvinder, når mappevalget ændrer sig.
+"""Find the local paths that disappear when the folder selection changes.
 
-En sti forsvinder, hvis klienten synkroniserede den med de gamle regler, og
-ikke synkroniserer den med de nye regler. Reglerne er alle regler i
-``sync_list`` og ``config``. Se ``rules.py``.
+A path disappears if the client synced it with the old rules and does not
+sync it with the new rules. The rules are all rules in ``sync_list`` and
+``config``. See ``rules.py``.
 
-En mappe forsvinder kun, hvis alle stier i den forsvinder. Ellers går
-funktionen ned i mappen og finder de stier, der forsvinder. Mappen og de
-andre stier bliver liggende.
+A folder disappears only if all paths in it disappear. Otherwise the
+function goes into the folder and finds the paths that disappear. The folder
+and the other paths stay.
 
-Stier, som de gamle regler ikke inkluderede, forsvinder ikke. Klienten
-synkroniserede dem ikke, så de findes måske kun lokalt. Symlinks og mapper
-med filen ``.nosync`` forsvinder aldrig.
+Paths that the old rules did not include do not disappear. The client did
+not sync them, so they maybe exist only locally. Symlinks and folders with
+the file ``.nosync`` never disappear.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .rules import RuleSet, is_skipped  # noqa: F401 - is_skipped bruges af viewmodels
+from .rules import RuleSet, is_skipped  # noqa: F401 - viewmodels uses is_skipped
 
 log = logging.getLogger(__name__)
 
@@ -29,9 +29,9 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Rules:
     folders: list[str] | None
-    """De valgte mapper uden ``/`` i enderne, eller ``None`` for alle mapper."""
+    """The selected folders without ``/`` at the ends, or ``None`` for all folders."""
     root_files: bool
-    """``sync_root_files``. Tæller kun, når ``folders`` ikke er ``None``."""
+    """``sync_root_files``. Counts only when ``folders`` is not ``None``."""
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,7 @@ class RemovedPath:
     path: Path
     is_dir: bool
     size: int
-    """Den samlede størrelse i bytes. For en mappe tæller alle filer i den."""
+    """The total size in bytes. For a folder, all files in it count."""
 
 
 def _size(path: Path) -> int:
@@ -70,20 +70,20 @@ def _rule_set(rules: Rules | RuleSet, skip_dirs: list[str], strict: bool) -> Rul
 
 def find_removed(sync_path: Path, old: Rules | RuleSet, new: Rules | RuleSet, *,
                  skip_dirs: Iterable[str] = (), strict: bool = False) -> list[RemovedPath]:
-    """De øverste lokale stier, der forsvinder. Mapper står før filer.
+    """The topmost local paths that disappear. Folders come before files.
 
-    ``skip_dirs`` og ``strict`` gælder kun, når reglerne er ``Rules``.
+    ``skip_dirs`` and ``strict`` apply only when the rules are ``Rules``.
     """
     skip_dirs = list(skip_dirs)
     old = _rule_set(old, skip_dirs, strict)
     new = _rule_set(new, skip_dirs, strict)
 
     def walk(directory: Path, rel_dir: str) -> tuple[bool, list[RemovedPath]]:
-        """Om alle stier i mappen forsvinder, og de øverste stier, der forsvinder."""
+        """Whether all paths in the folder disappear, and the topmost paths that disappear."""
         try:
             entries = sorted(os.scandir(directory), key=lambda e: (not e.is_dir(follow_symlinks=False), e.name))
         except OSError as exc:
-            log.warning("Kan ikke læse %s: %s", directory, exc)
+            log.warning("Cannot read %s: %s", directory, exc)
             return False, []
         all_gone = True
         found: list[RemovedPath] = []
@@ -108,7 +108,7 @@ def find_removed(sync_path: Path, old: Rules | RuleSet, new: Rules | RuleSet, *,
         return all_gone, found
 
     def folder(path: Path, rel: str) -> tuple[bool, list[RemovedPath]]:
-        """Om hele mappen forsvinder, og ellers de stier i den, der forsvinder."""
+        """Whether the whole folder disappears, and otherwise the paths in it that disappear."""
         if new.keeps_all_below(rel, old):
             return False, []
         synced = old.includes(rel, True)
@@ -117,8 +117,8 @@ def find_removed(sync_path: Path, old: Rules | RuleSet, new: Rules | RuleSet, *,
         if os.path.lexists(path / NOSYNC):
             return False, []
         all_gone, below = walk(path, rel)
-        # En mappe, som klienten kun havde som overmappe, forsvinder kun,
-        # hvis den indeholdt noget, der forsvinder.
+        # A folder that the client had only as a parent folder disappears only
+        # if it contained something that disappears.
         if all_gone and (synced or below):
             return True, below
         return False, below
@@ -138,4 +138,4 @@ def format_size(size: int) -> str:
         value /= 1024
     if unit == "B":
         return f"{int(value)} B"
-    return f"{value:.1f} {unit}".replace(".", ",")
+    return f"{value:.1f} {unit}"

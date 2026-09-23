@@ -1,4 +1,4 @@
-"""Registeret over visningsnavne (feature 0001)."""
+"""The registry of display names (feature 0001)."""
 
 import json
 
@@ -20,7 +20,7 @@ def test_rename_is_saved_and_survives_restart(home):
     data = json.loads(registry_path(home).read_text())
     assert [a["name"] for a in data["accounts"]] == ["Firma 1"]
 
-    # En ny instans svarer til en genstart af applikationen.
+    # A new instance is the same as a restart of the application.
     accounts = discover_accounts(home, Registry.for_home(home))
     assert accounts[0].name == "Firma 1"
 
@@ -50,7 +50,7 @@ def test_default_name_without_registry_entry(home):
 def test_broken_registry_still_shows_accounts(home):
     make_account_dir(home, "onedrive", refresh_token=True)
     registry_path(home).parent.mkdir(parents=True)
-    registry_path(home).write_text("{ikke json")
+    registry_path(home).write_text("{not json")
 
     accounts = discover_accounts(home, Registry.for_home(home))
 

@@ -1,26 +1,27 @@
-"""Servicens tilstand for hver konto (feature 0004).
+"""The state of the service for each account (feature 0004).
 
-Applikationen spørger ``systemctl show`` om alle konti med ét kald. Tilstanden
-kommer fra egenskaberne, kontoens filer og de kørende ``onedrive``-processer.
-Passer flere tilstande, vinder den første i denne rækkefølge:
+The application asks ``systemctl show`` about all accounts with one call. The
+state comes from the properties, the files of the account and the running
+``onedrive`` processes. If more than one state applies, the first one in this
+order wins:
 
-1. Ingen service
-2. Ikke logget ind
-3. Kører uden for servicen
-4. Kræver resync
-5. Resynkroniserer
-6. Resync afbrudt
-7. Kører, Starter, Stopper, Fejlet eller Stoppet efter ``ActiveState``
+1. No service
+2. Not signed in
+3. Running outside the service
+4. Needs resync
+5. Resyncing
+6. Resync stopped
+7. Running, Starting, Stopping, Failed or Stopped from ``ActiveState``
 
-"Resynkroniserer" gælder, når servicens hovedproces har ``--resync`` på
-kommandolinjen, og journalen for servicens nuværende kørsel endnu ikke har en
-linje, der afslutter synkroniseringen (feature 0009). ``ResyncTracker`` læser
-journalen for kørslen og husker fremdriften og cursoren.
+"Resyncing" applies when the main process of the service has ``--resync`` on
+the command line, and the journal for the current run of the service does not
+yet have a line that ends the sync (feature 0009). ``ResyncTracker`` reads the
+journal for the run and remembers the progress and the cursor.
 
-"Resync afbrudt" gælder, når applikationen selv har stoppet servicen under en
-resync, og servicen stadig er stoppet (feature 0010). Markeringen står i
-``~/.config/skyhus/state.json`` pr. service sammen med kørslens
-``InvocationID``. Markeringen forsvinder, når servicen starter en ny kørsel.
+"Resync stopped" applies when the application itself stopped the service during
+a resync, and the service is still stopped (feature 0010). The mark is in
+``~/.config/skyhus/state.json`` per service together with the ``InvocationID``
+of the run. The mark goes away when the service starts a new run.
 """
 
 from __future__ import annotations
@@ -63,28 +64,28 @@ STOPPED = "stopped"
 UNKNOWN = "unknown"
 
 SETTLED = frozenset({RUNNING, FAILED, NEEDS_RESYNC, RESYNCING})
-"""Tilstandene, som applikationen venter på efter et klik."""
+"""The states that the application waits for after a click."""
 
-# Nøgle: (tekst, prik, handling). Handlingen er "restart", "start", "resync" eller tom.
+# Key: (text, dot, action). The action is "restart", "start", "resync" or empty.
 STATES = {
-    RUNNING: ("Kører", "success", "restart"),
-    STARTING: ("Starter", "warning", "restart"),
-    STOPPING: ("Stopper", "warning", ""),
-    NEEDS_RESYNC: ("Kræver resync", "danger", "resync"),
-    RESYNCING: ("Resynkroniserer", "warning", ""),
-    RESYNC_CANCELLED: ("Resync afbrudt", "warning", "resync"),
-    FAILED: ("Fejlet", "danger", "start"),
-    STOPPED: ("Stoppet", "textSecondary", "start"),
-    FOREIGN: ("Kører uden for servicen", "warning", ""),
-    LOGGED_OUT: ("Ikke logget ind", "textSecondary", ""),
-    NO_SERVICE: ("Ingen service", "textSecondary", ""),
-    UNKNOWN: ("Henter status …", "textSecondary", ""),
+    RUNNING: ("Running", "success", "restart"),
+    STARTING: ("Starting", "warning", "restart"),
+    STOPPING: ("Stopping", "warning", ""),
+    NEEDS_RESYNC: ("Needs resync", "danger", "resync"),
+    RESYNCING: ("Resyncing", "warning", ""),
+    RESYNC_CANCELLED: ("Resync stopped", "warning", "resync"),
+    FAILED: ("Failed", "danger", "start"),
+    STOPPED: ("Stopped", "textSecondary", "start"),
+    FOREIGN: ("Running outside the service", "warning", ""),
+    LOGGED_OUT: ("Not signed in", "textSecondary", ""),
+    NO_SERVICE: ("No service", "textSecondary", ""),
+    UNKNOWN: ("Getting status …", "textSecondary", ""),
 }
 
-ACTION_LABELS = {"restart": "Genstart", "start": "Start", "resync": "Genstart med resync"}
+ACTION_LABELS = {"restart": "Restart", "start": "Start", "resync": "Restart with resync"}
 
 RESYNC_FLAG = "--resync"
-RESULT_TEXTS = {COMPLETE: "Resync er færdig", COMPLETE_WITH_FAILURES: "Resync er færdig med fejl"}
+RESULT_TEXTS = {COMPLETE: "Resync complete", COMPLETE_WITH_FAILURES: "Resync complete with errors"}
 
 _BY_ACTIVE_STATE = {
     "active": RUNNING,
@@ -96,23 +97,23 @@ _BY_ACTIVE_STATE = {
     "inactive": STOPPED,
 }
 
-MONTHS = ("jan.", "feb.", "mar.", "apr.", "maj", "jun.", "jul.", "aug.", "sep.", "okt.", "nov.", "dec.")
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _TIMESTAMP = re.compile(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})")
 
 Run = Callable[..., subprocess.CompletedProcess]
-READ_ERROR = "Kan ikke læse status"
+READ_ERROR = "Cannot read the status"
 
 STATE_FILE = "state.json"
 CANCELLED_KEY = "resync_cancelled"
 _STOPPED_STATES = ("inactive", "failed")
 _STARTED_STATES = ("active", "reloading", "refreshing", "activating")
-# Statustråden og tråden for "Afbryd resync" kan skrive filen på samme tid.
+# The status thread and the thread for "Stop resync" can write the file at the same time.
 _state_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
 class UnitStatus:
-    """Egenskaberne for 1 unit fra ``systemctl show``."""
+    """The properties of 1 unit from ``systemctl show``."""
 
     id: str
     load_state: str = ""
@@ -151,7 +152,7 @@ class UnitStatus:
 class ServiceState:
     key: str
     since: str = ""
-    """Fx "i dag kl. 08:37". Tom, hvis tilstanden ikke har et tidspunkt."""
+    """For example "today at 08:37". Empty if the state has no time."""
 
     @property
     def label(self) -> str:
@@ -174,16 +175,16 @@ class ServiceState:
 class AccountStatus:
     state: ServiceState
     error_line: str = ""
-    """Den seneste fejllinje fra journalen ved "Fejlet" og "Kræver resync"."""
+    """The latest error line from the journal for "Failed" and "Needs resync"."""
     stale: bool = False
-    """``systemctl show`` fejlede. ``state`` er den sidste kendte tilstand."""
+    """``systemctl show`` failed. ``state`` is the last known state."""
     read_error: str = ""
     progress: SyncProgress | None = None
-    """Fremdriften, når servicens hovedproces har ``--resync``. Ellers ``None``."""
+    """The progress when the main process of the service has ``--resync``. Otherwise ``None``."""
 
     @property
     def progress_text(self) -> str:
-        """"Resync er færdig", "Resync er færdig med fejl" eller tom."""
+        """"Resync complete", "Resync complete with errors" or empty."""
         return RESULT_TEXTS.get(self.progress.result, "") if self.progress is not None else ""
 
     @property
@@ -194,10 +195,10 @@ class AccountStatus:
 
 
 def parse_show(output: str, services: list[str]) -> dict[str, UnitStatus]:
-    """Del svaret fra ``systemctl show`` op pr. unit.
+    """Split the output of ``systemctl show`` per unit.
 
-    ``systemctl`` skriver en blok pr. unit i samme rækkefølge som navnene. Den
-    skriver ikke felterne i den rækkefølge, som ``-p`` angiver.
+    ``systemctl`` writes one block per unit in the same order as the names. It
+    does not write the fields in the order that ``-p`` gives.
     """
     blocks: list[dict[str, str]] = []
     current: dict[str, str] = {}
@@ -227,7 +228,7 @@ def read_units(services: list[str], run: Run | None = None) -> dict[str, UnitSta
 
 
 def parse_timestamp(value: str) -> datetime | None:
-    """Omsæt fx ``Wed 2026-09-23 08:37:12 CEST`` til lokal tid."""
+    """Convert for example ``Wed 2026-09-23 08:37:12 CEST`` to local time."""
     match = _TIMESTAMP.search(value or "")
     if not match:
         return None
@@ -239,19 +240,19 @@ def parse_timestamp(value: str) -> datetime | None:
 
 
 def format_since(value: str, now: datetime) -> str:
-    """"i dag kl. 08:37", "i går kl. 08:37" eller "22. sep. kl. 08:37"."""
+    """"today at 08:37", "yesterday at 08:37" or "22 Sep at 08:37"."""
     when = parse_timestamp(value)
     if when is None:
         return ""
-    clock = f"kl. {when:%H:%M}"
+    clock = f"at {when:%H:%M}"
     today: date = now.date()
     if when.date() == today:
-        return f"i dag {clock}"
+        return f"today {clock}"
     if when.date() == today - timedelta(days=1):
-        return f"i går {clock}"
+        return f"yesterday {clock}"
     if when.year != today.year:
-        return f"{when.day}. {MONTHS[when.month - 1]} {when.year} {clock}"
-    return f"{when.day}. {MONTHS[when.month - 1]} {clock}"
+        return f"{when.day} {MONTHS[when.month - 1]} {when.year} {clock}"
+    return f"{when.day} {MONTHS[when.month - 1]} {clock}"
 
 
 def _logged_in(account: Account) -> bool:
@@ -268,7 +269,7 @@ def _read_state_file(path: Path) -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as exc:
-        log.warning("Kan ikke læse %s: %s", path, exc)
+        log.warning("Cannot read %s: %s", path, exc)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -283,7 +284,7 @@ def _write_state_file(path: Path, data: dict) -> None:
 
 
 def cancelled_resyncs(home: Path | None = None) -> dict[str, str]:
-    """De services, hvor applikationen har afbrudt en resync. Værdien er kørslens ``InvocationID``."""
+    """The services where the application has stopped a resync. The value is the ``InvocationID`` of the run."""
     with _state_lock:
         marks = _read_state_file(state_path(home)).get(CANCELLED_KEY)
     if not isinstance(marks, dict):
@@ -293,7 +294,7 @@ def cancelled_resyncs(home: Path | None = None) -> dict[str, str]:
 
 
 def mark_resync_cancelled(service: str, invocation: str, home: Path | None = None) -> None:
-    """Husk, at applikationen har stoppet ``service`` under en resync."""
+    """Remember that the application has stopped ``service`` during a resync."""
     path = state_path(home)
     with _state_lock:
         data = _read_state_file(path)
@@ -303,11 +304,11 @@ def mark_resync_cancelled(service: str, invocation: str, home: Path | None = Non
         marks[service] = {"invocation": invocation}
         data[CANCELLED_KEY] = marks
         _write_state_file(path, data)
-    log.info("%s: resync afbrudt (kørsel %s)", service, invocation or "ukendt")
+    log.info("%s: resync stopped (run %s)", service, invocation or "unknown")
 
 
 def clear_resync_cancelled(service: str, home: Path | None = None) -> None:
-    """Fjern markeringen for ``service``. Gør intet, hvis der ikke er en."""
+    """Remove the mark for ``service``. Does nothing if there is none."""
     path = state_path(home)
     with _state_lock:
         data = _read_state_file(path)
@@ -316,28 +317,28 @@ def clear_resync_cancelled(service: str, home: Path | None = None) -> None:
             return
         del marks[service]
         _write_state_file(path, data)
-    log.info("%s: markeringen for afbrudt resync er fjernet", service)
+    log.info("%s: the mark for the stopped resync is removed", service)
 
 
 def determine(account: Account, unit: UnitStatus | None, processes: list[OnedriveProcess],
               now: datetime, progress: SyncProgress | None = None,
               resync_cancelled: bool = False) -> ServiceState:
-    """Tilstanden efter tabellen i feature 0004, "Resynkroniserer" fra feature 0009
-    og "Resync afbrudt" fra feature 0010.
+    """The state from the table in feature 0004, "Resyncing" from feature 0009
+    and "Resync stopped" from feature 0010.
 
-    ``progress`` er fremdriften for kørslen, når hovedprocessen har ``--resync``.
-    ``resync_cancelled`` er sand, når applikationen har afbrudt en resync for servicen.
+    ``progress`` is the progress of the run when the main process has ``--resync``.
+    ``resync_cancelled`` is true when the application has stopped a resync for the service.
     """
     if not account.service or unit is None or unit.load_state == "not-found":
         return ServiceState(NO_SERVICE)
     if not _logged_in(account):
         return ServiceState(LOGGED_OUT)
-    # En proces hører til servicen, hvis den er MainPID eller står i servicens cgroup.
+    # A process belongs to the service if it is MainPID or is in the cgroup of the service.
     if any(p.pid != unit.main_pid and p.unit != account.service for p in processes):
         return ServiceState(FOREIGN)
     if unit.exec_main_status == RESYNC_EXIT_STATUS and unit.active_state in ("failed", "inactive"):
         return ServiceState(NEEDS_RESYNC, format_since(unit.inactive_enter, now))
-    # Stopper servicen, viser kortet "Stopper", også hvis hovedprocessen stadig resynkroniserer.
+    # If the service is stopping, the card shows "Stopping", also if the main process still resyncs.
     if progress is not None and not progress.result and unit.active_state != "deactivating":
         return ServiceState(RESYNCING, format_since(unit.active_enter, now))
     if resync_cancelled and unit.active_state in _STOPPED_STATES:
@@ -353,7 +354,7 @@ def determine(account: Account, unit: UnitStatus | None, processes: list[Onedriv
 
 
 def has_resync(unit: UnitStatus, proc_root: Path = PROC_ROOT) -> bool:
-    """Har servicens hovedproces ``--resync`` på kommandolinjen?"""
+    """Does the main process of the service have ``--resync`` on the command line?"""
     return RESYNC_FLAG in cmdline(unit.main_pid, proc_root)
 
 
@@ -365,11 +366,11 @@ class _Invocation:
 
 
 class ResyncTracker:
-    """Fremdriften for hver services nuværende kørsel med ``--resync``.
+    """The progress of the current ``--resync`` run of each service.
 
-    Første gang læser trackeren hele kørslens journal. Derefter læser den kun
-    linjerne efter den sidste cursor. Når kørslen har et resultat, læser den
-    ikke journalen igen. To tråde kan kalde trackeren på samme tid.
+    The first time, the tracker reads the whole journal of the run. After that it
+    reads only the lines after the last cursor. When the run has a result, it
+    does not read the journal again. Two threads can call the tracker at the same time.
     """
 
     def __init__(self, run: Run | None = None):
@@ -378,7 +379,7 @@ class ResyncTracker:
         self._invocations: dict[str, _Invocation] = {}
 
     def update(self, service: str, invocation_id: str) -> SyncProgress:
-        """Læs de nye linjer for kørslen, og giv en kopi af fremdriften."""
+        """Read the new lines for the run, and return a copy of the progress."""
         with self._lock:
             current = self._invocations.get(service)
             if current is None or current.invocation_id != invocation_id:
@@ -403,7 +404,7 @@ class ResyncTracker:
 
 
 def initial_status(account: Account) -> AccountStatus:
-    """Tilstanden, før applikationen har spurgt ``systemctl``."""
+    """The state before the application has asked ``systemctl``."""
     if not account.service:
         return AccountStatus(ServiceState(NO_SERVICE))
     if not _logged_in(account):
@@ -412,7 +413,7 @@ def initial_status(account: Account) -> AccountStatus:
 
 
 class StatusReader:
-    """Læs tilstanden for alle konti. Husker den sidste kendte tilstand og fejllinjen."""
+    """Read the state for all accounts. Remembers the last known state and the error line."""
 
     def __init__(self, *, home: Path | None = None, run: Run | None = None,
                  proc_root: Path = PROC_ROOT, now: Callable[[], datetime] | None = None):
@@ -445,11 +446,11 @@ class StatusReader:
         return determine(account, unit, processes, self._now(), progress, cancelled), progress
 
     def _resync_cancelled(self, service: str, unit: UnitStatus) -> bool:
-        """Er der en markering for servicen? Den forsvinder, når servicen starter en ny kørsel."""
+        """Is there a mark for the service? It goes away when the service starts a new run."""
         marks = cancelled_resyncs(self._home)
         if service not in marks:
             return False
-        # Samme InvocationID: svaret fra systemctl kan være læst, før stoppet var færdigt.
+        # Same InvocationID: the output from systemctl can be from before the stop was done.
         if unit.active_state in _STARTED_STATES and unit.invocation_id != marks[service]:
             clear_resync_cancelled(service, self._home)
             return False
@@ -461,7 +462,7 @@ class StatusReader:
     def _error_line(self, account: Account, state: ServiceState, unit: UnitStatus) -> str:
         if state.key not in (FAILED, NEEDS_RESYNC):
             return ""
-        # Journalen ændrer sig ikke, så længe servicen står stille i samme tilstand.
+        # The journal does not change while the service stays in the same state.
         key = (state.key, unit.inactive_enter)
         cached = self._errors.get(account.service)
         if cached is not None and cached[0] == key:
@@ -471,13 +472,13 @@ class StatusReader:
         return line
 
     def read(self, accounts: list[Account]) -> dict[str, AccountStatus]:
-        """Tilstanden for hver konto. Nøglen er config-mappen som tekst."""
+        """The state for each account. The key is the config folder as text."""
         result: dict[str, AccountStatus] = {}
         try:
             units = read_units([a.service for a in accounts], run=self._run)
             error = ""
         except SystemctlError as exc:
-            log.warning("Kan ikke læse servicernes status: %s", exc)
+            log.warning("Cannot read the status of the services: %s", exc)
             units, error = {}, str(exc)
         for account in accounts:
             key = str(account.confdir)
@@ -492,7 +493,7 @@ class StatusReader:
         return result
 
     def read_progress(self, accounts: list[Account]) -> dict[str, SyncProgress]:
-        """Læs de nye linjer for konti, der står som "Resynkroniserer". Kalder ikke ``systemctl``."""
+        """Read the new lines for accounts that show "Resyncing". Does not call ``systemctl``."""
         result: dict[str, SyncProgress] = {}
         for account in accounts:
             key = str(account.confdir)
@@ -505,6 +506,6 @@ class StatusReader:
         return result
 
     def read_state(self, account: Account) -> ServiceState:
-        """Tilstanden for 1 konto uden fejllinje. Bruges, mens applikationen venter."""
+        """The state for 1 account without the error line. Used while the application waits."""
         units = read_units([account.service], run=self._run)
         return self._state(account, units)

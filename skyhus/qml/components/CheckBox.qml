@@ -3,7 +3,7 @@ import QtQuick.Shapes
 import QtQuick.Templates as T
 import Skyhus
 
-// Et afkrydsningsfelt på 14 px med afrundede hjørner. Fyldes med accent.
+// A check box of 14 px with rounded corners. It fills with accent.
 T.CheckBox {
     id: control
 
@@ -29,7 +29,7 @@ T.CheckBox {
             ColorAnimation { duration: Theme.animFast; easing.type: Theme.animEasing }
         }
 
-        // Fluebenet og stregen er tegnet som figurer. Et ikon med 1,5 px streg er for tyndt i 14 px.
+        // The check mark and the dash are drawn as shapes. An icon with a 1.5 px stroke is too thin at 14 px.
         Shape {
             id: glyph
             anchors.fill: parent

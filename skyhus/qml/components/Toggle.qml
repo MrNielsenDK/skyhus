@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Templates as T
 import Skyhus
 
-// En kontakt som på iOS og macOS.
+// A switch as on iOS and macOS.
 T.Switch {
     id: control
 

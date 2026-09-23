@@ -1,8 +1,8 @@
 import QtQuick
 import Skyhus
 
-// En bjælke for fremdrift (feature 0009). value går fra 0 til 1.
-// Er indeterminate sat, kender applikationen ikke det samlede antal. Så glider et stykke frem og tilbage.
+// A progress bar (feature 0009). value goes from 0 to 1.
+// If indeterminate is set, the application does not know the total. Then a segment slides back and forth.
 Item {
     id: bar
     objectName: "progressBar"
@@ -14,7 +14,7 @@ Item {
     implicitWidth: Theme.fieldWidth
 
     Accessible.role: Accessible.ProgressBar
-    Accessible.name: indeterminate ? "I gang" : Math.round(value * 100) + " %"
+    Accessible.name: indeterminate ? "Running" : Math.round(value * 100) + " %"
 
     Rectangle {
         id: track

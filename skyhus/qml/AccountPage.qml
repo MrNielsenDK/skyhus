@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import Skyhus
 import "components" as UI
 
-// Den valgte kontos overskrift og kort.
+// The heading and cards of the selected account.
 Item {
     id: page
 
@@ -76,11 +76,11 @@ Item {
             }
 
             UI.Card {
-                title: "Konto"
+                title: "Account"
 
                 UI.Row {
                     first: true
-                    text: "Synkmappe"
+                    text: "Sync folder"
                     value: page.syncDir
                 }
                 UI.Row {
@@ -90,27 +90,27 @@ Item {
                         tone: page.loggedIn ? "success" : "textSecondary"
                     }
                     Text {
-                        text: page.loggedIn ? "Logget ind" : "Ikke logget ind"
+                        text: page.loggedIn ? "Signed in" : "Not signed in"
                         font: Theme.body
                         color: Theme.textSecondary
                     }
                 }
                 UI.Row {
-                    text: "Log ind"
-                    detail: "Log ind med kontoen i Microsofts login-side."
+                    text: "Sign in"
+                    detail: "Sign in with the account on the Microsoft sign-in page."
 
                     UI.SecondaryButton {
-                        text: "Log ind"
+                        text: "Sign in"
                         enabled: page.controller.loginState === "idle"
                         onClicked: page.controller.login(page.confdir)
                     }
                 }
                 UI.Row {
-                    text: "Vælg mapper"
-                    detail: "Vælg, hvilke mapper på OneDrive kontoen synkroniserer."
+                    text: "Choose folders"
+                    detail: "Choose which folders on OneDrive the account syncs."
 
                     UI.SecondaryButton {
-                        text: "Vælg mapper …"
+                        text: "Choose folders …"
                         enabled: page.controller.loginState === "idle" && page.controller.pickerState === "closed"
                         onClicked: page.controller.openFolderPicker(page.confdir)
                     }
@@ -133,15 +133,15 @@ Item {
             }
 
             UI.Card {
-                title: "Detaljer"
+                title: "Details"
 
                 UI.Row {
                     first: true
-                    text: "Visningsnavn"
+                    text: "Display name"
                     value: page.name
 
                     UI.SecondaryButton {
-                        text: "Omdøb"
+                        text: "Rename"
                         onClicked: {
                             renameField.text = page.name
                             renameError.text = ""
@@ -150,12 +150,12 @@ Item {
                     }
                 }
                 UI.Row {
-                    text: "Config-mappe"
+                    text: "Config folder"
                     value: page.confdir
                 }
                 UI.Row {
                     text: "Service"
-                    value: page.service !== "" ? page.service : "Ingen"
+                    value: page.service !== "" ? page.service : "None"
                 }
             }
         }
@@ -163,7 +163,7 @@ Item {
 
     UI.Sheet {
         id: renameDialog
-        title: "Omdøb konto"
+        title: "Rename account"
 
         function save() {
             var error = page.controller.rename(page.confdir, renameField.text)
@@ -178,7 +178,7 @@ Item {
         UI.TextField {
             id: renameField
             Layout.fillWidth: true
-            placeholderText: "Visningsnavn"
+            placeholderText: "Display name"
             onAccepted: renameDialog.save()
         }
         UI.InlineError {
@@ -187,11 +187,11 @@ Item {
 
         buttons: [
             UI.SecondaryButton {
-                text: "Annullér"
+                text: "Cancel"
                 onClicked: renameDialog.close()
             },
             UI.PrimaryButton {
-                text: "Gem"
+                text: "Save"
                 onClicked: renameDialog.save()
             }
         ]

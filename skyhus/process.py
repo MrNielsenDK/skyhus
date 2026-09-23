@@ -1,4 +1,4 @@
-"""Find kørende ``onedrive``-processer for en config-mappe via ``/proc``."""
+"""Find running ``onedrive`` processes for a config folder via ``/proc``."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ class OnedriveProcess:
     pid: int
     args: list[str]
     unit: str
-    """Den systemd-unit, som processen kører i, fx ``onedrive-privat.service``.
-    Tom, hvis processen ikke kører i en service."""
+    """The systemd unit that the process runs in, for example ``onedrive-privat.service``.
+    Empty if the process does not run in a service."""
 
 
 def _expand(value: str, home: Path) -> str:
@@ -30,7 +30,7 @@ def _expand(value: str, home: Path) -> str:
 
 
 def confdir_of(args: list[str], home: Path | None = None) -> str:
-    """Config-mappen, som en ``onedrive``-kommando bruger."""
+    """The config folder that an ``onedrive`` command uses."""
     home = home_dir(home)
     for i, arg in enumerate(args[1:], start=1):
         if arg.startswith("--confdir="):
@@ -59,7 +59,7 @@ def find_processes(confdir: Path, *, home: Path | None = None,
     try:
         entries = sorted((e for e in Path(proc_root).iterdir() if e.name.isdigit()), key=lambda e: int(e.name))
     except OSError as exc:
-        log.warning("Kan ikke læse %s: %s", proc_root, exc)
+        log.warning("Cannot read %s: %s", proc_root, exc)
         return []
     for entry in entries:
         try:
@@ -75,7 +75,7 @@ def find_processes(confdir: Path, *, home: Path | None = None,
 
 
 def cmdline(pid: int, proc_root: Path = PROC_ROOT) -> list[str]:
-    """Kommandolinjen for processen ``pid`` fra ``/proc/<pid>/cmdline``. Tom, hvis den ikke kan læses."""
+    """The command line of the process ``pid`` from ``/proc/<pid>/cmdline``. Empty if it cannot be read."""
     if pid <= 0:
         return []
     try:

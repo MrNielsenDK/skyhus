@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import QtQuick.Templates as T
 import Skyhus
 
-// Den sekundære knap: cardBg med en tynd kant. Med destructive er teksten i danger.
+// The secondary button: cardBg with a thin border. With destructive, the text is in danger.
 T.Button {
     id: control
 

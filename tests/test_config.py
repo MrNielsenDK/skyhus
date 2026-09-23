@@ -1,4 +1,4 @@
-"""sync_root_files og skip_dir i kontoens config (feature 0002)."""
+"""sync_root_files and skip_dir in the config of the account (feature 0002)."""
 
 from skyhus.config import (
     DEFAULT_SKIP_FILE,
@@ -11,7 +11,7 @@ from skyhus.config import (
 
 from conftest import make_account_dir
 
-CONFIG = '# Min config\nsync_dir = "~/OneDrive-X"\n\n# sync_root_files = "true"\nmonitor_interval = "300"\n'
+CONFIG = '# My config\nsync_dir = "~/OneDrive-X"\n\n# sync_root_files = "true"\nmonitor_interval = "300"\n'
 
 
 def test_enabling_root_files_keeps_other_lines(home):
@@ -51,12 +51,12 @@ def test_config_without_final_newline(home):
 
 def test_skip_dir_values_are_split_and_joined(home):
     confdir = make_account_dir(home, "onedrive-x", config=(
-        'skip_dir = "Desktop|Documents/IISExpress"\n# skip_dir = "Ikke"\nskip_dir = "/Eksplicit/Sti"\n'))
+        'skip_dir = "Desktop|Documents/IISExpress"\n# skip_dir = "Not"\nskip_dir = "/Explicit/Path"\n'))
 
-    assert read_skip_dirs(confdir) == ["Desktop", "Documents/IISExpress", "/Eksplicit/Sti"]
+    assert read_skip_dirs(confdir) == ["Desktop", "Documents/IISExpress", "/Explicit/Path"]
 
 
-# Feature 0006: skip_file og skip_dotfiles.
+# Feature 0006: skip_file and skip_dotfiles.
 
 
 def test_skip_file_default_when_missing(home):
@@ -68,7 +68,7 @@ def test_skip_file_default_when_missing(home):
 
 def test_skip_file_values_replace_default_and_are_joined(home):
     confdir = make_account_dir(home, "onedrive-x", config=(
-        'skip_file = "*.bak|~*"\n# skip_file = "*.ikke"\nskip_file = "/Documents/keepass.kdbx"\n'))
+        'skip_file = "*.bak|~*"\n# skip_file = "*.not"\nskip_file = "/Documents/keepass.kdbx"\n'))
 
     assert read_skip_files(confdir) == ["*.bak", "~*", "/Documents/keepass.kdbx"]
 

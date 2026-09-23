@@ -1,7 +1,7 @@
-"""Designværdierne fra feature 0003: farver, skrift, mål og tider.
+"""The design values from feature 0003: colors, fonts, sizes and times.
 
-QML-filerne må ikke indeholde farvekoder eller faste størrelser. De bruger
-singletonen ``Theme`` fra modulet ``Skyhus``.
+The QML files must not contain color codes or fixed sizes. They use the
+``Theme`` singleton from the ``Skyhus`` module.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ LIGHT = {
     "success": "#248A3D",
     "warning": "#C93400",
     "danger": "#D70015",
-    # Tokens, som dokumentet ikke nævner, men som kontrollerne har brug for.
+    # Tokens that the document does not mention, but that the controls need.
     "controlFill": "rgba(120,120,128,0.20)",
     "controlBorder": "rgba(0,0,0,0.16)",
     "hover": "rgba(0,0,0,0.05)",
@@ -74,7 +74,7 @@ AVATARS = [
     ("#28A745", "#FFFFFF"),
     ("#0E8FA8", "#FFFFFF"),
 ]
-"""Baggrund og tekst for ``avatar1`` … ``avatar8``. Ens i lyst og mørkt tema."""
+"""Background and text for ``avatar1`` … ``avatar8``. The same in the light and dark theme."""
 
 FONTS = {
     "largeTitle": (26, 700),
@@ -100,7 +100,7 @@ METRICS = {
     "windowHeight": 620,
     "windowMinWidth": 820,
     "windowMinHeight": 540,
-    # Mål, som dokumentet ikke nævner, men som kontrollerne har brug for.
+    # Sizes that the document does not mention, but that the controls need.
     "hairline": 1,
     "focusRing": 3,
     "controlHeight": 28,
@@ -123,7 +123,7 @@ METRICS = {
     "radiusCheck": 4,
     "checkStroke": 2,
     "treeRowHeight": 30,
-    # Bjælken for fremdrift (feature 0009).
+    # The progress bar (feature 0009).
     "progressHeight": 4,
     "animIndeterminate": 1200,
 }
@@ -136,7 +136,7 @@ _RGBA = re.compile(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)")
 
 
 def parse_color(value: str) -> QColor:
-    """Omsæt ``#RRGGBB`` eller ``rgba(r,g,b,a)`` til en ``QColor``."""
+    """Convert ``#RRGGBB`` or ``rgba(r,g,b,a)`` to a ``QColor``."""
     match = _RGBA.fullmatch(value.replace(" ", ""))
     if match:
         r, g, b, a = match.groups()
@@ -145,7 +145,7 @@ def parse_color(value: str) -> QColor:
 
 
 def avatar_index(confdir: Path) -> int:
-    """Et fast tal fra 1 til 8 ud fra config-mappen. Tallet er ens efter en genstart."""
+    """A fixed number from 1 to 8 from the config folder. The number is the same after a restart."""
     digest = hashlib.sha256(str(confdir).encode()).hexdigest()
     return 1 + int(digest, 16) % len(AVATARS)
 
@@ -159,7 +159,7 @@ def avatar_text_color(account: Account) -> str:
 
 
 def initials(name: str) -> str:
-    """Forbogstaverne i de 2 første ord, fx "Firma 2" -> "F2"."""
+    """The first letters of the first 2 words, for example "Firma 2" -> "F2"."""
     return "".join(word[0] for word in name.split()[:2]).upper()
 
 
@@ -189,7 +189,7 @@ def _avatar_property(index: int, part: int) -> Property:
 @QmlElement
 @QmlSingleton
 class Theme(QObject):
-    """Lyst eller mørkt tema efter systemet. Skifter uden en genstart."""
+    """Light or dark theme from the system. Changes without a restart."""
 
     changed = Signal()
 
@@ -307,4 +307,4 @@ class Theme(QObject):
         return color
 
     focusRingColor = Property(QColor, _get_focus_ring_color, notify=changed)
-    """Ringen om et fokuseret element: ``accent`` med 50 % gennemsigtighed."""
+    """The ring around a focused item: ``accent`` with 50 % opacity."""
