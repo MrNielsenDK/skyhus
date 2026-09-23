@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QCoreApplication, QRectF, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QImage, QPainter
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage, QPainter
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -98,6 +98,9 @@ def main() -> int:
     app = QGuiApplication(sys.argv)
     app.setApplicationName("skyhus")
     app.setApplicationDisplayName("Skyhus")
+    # På Wayland finder panelet ikonet via skyhus.desktop (feature 0013).
+    app.setDesktopFileName("skyhus")
+    app.setWindowIcon(QIcon(str(ASSETS_DIR / "skyhus.svg")))
     load_fonts()
     use_default_font(app)
     # Kontrollerne tegner selv designet. Stilen "Basic" holder KDE's stil ude.

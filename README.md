@@ -112,7 +112,32 @@ Kør denne kommando fra projektets rod:
 python3 -m skyhus.app
 ```
 
-Du kan også installere kommandoen `skyhus` med `pip install --user -e .`.
+## Installér
+
+Kør denne kommando fra projektets rod:
+
+```bash
+python3 -m skyhus.install
+```
+
+Kommandoen lægger Skyhus i programmenuen og installerer kommandoen `skyhus`. Den skriver 3 filer:
+
+- `~/.local/bin/skyhus` starter Skyhus fra projektmappen,
+- `~/.local/share/applications/skyhus.desktop` viser Skyhus i programmenuen,
+- `~/.local/share/icons/hicolor/scalable/apps/skyhus.svg` er ikonet.
+
+Installationen bruger systemets PySide6 og ikke pip.
+Findes en af filerne allerede, og har Skyhus ikke skrevet den, stopper installationen uden at ændre noget.
+
+Flytter du projektmappen, skal du køre `python3 -m skyhus.install` igen.
+
+Fjern Skyhus fra programmenuen med denne kommando:
+
+```bash
+python3 -m skyhus.install --uninstall
+```
+
+Kommandoen fjerner kun de 3 filer. Dine konti, services, synkmapper og `~/.config/skyhus/` bliver liggende.
 
 ## Sikker tilstand
 

@@ -2,6 +2,15 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.9.0] - 2026-09-23
+
+### Added
+- Kommandoen `python3 -m skyhus.install` lægger Skyhus i programmenuen med et ikon og installerer kommandoen `skyhus`. `--uninstall` fjerner dem igen. Installationen overskriver og fjerner kun filer, som Skyhus selv har skrevet. Se `docs/features/0013-installer-paa-skrivebordet.md`.
+- Vinduet har ikonet for Skyhus. På Wayland viser panelet ikonet ved vinduet. Se `docs/features/0013-installer-paa-skrivebordet.md`.
+
+### Removed
+- `pyproject.toml` kræver ikke længere PySide6 fra PyPI. README beskriver ikke længere `pip install`. Se `docs/features/0013-installer-paa-skrivebordet.md`.
+
 ## [0.8.0] - 2026-09-23
 
 ### Changed

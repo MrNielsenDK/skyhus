@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skyhus"
-version = "0.8.0"
+version = "0.9.0"
 description = "Qt-brugerflade til flere OneDrive-konti med abraunegg/onedrive"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["PySide6>=6.8"]
+# Ingen pip-afhængigheder: PySide6 og onedrive er systempakker. README har apt install-linjen.
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -21,7 +21,7 @@ packages = ["skyhus"]
 
 [tool.setuptools.package-data]
 skyhus = ["qml/*.qml", "qml/sheets/*.qml", "qml/components/*.qml",
-                "assets/fonts/*", "assets/icons/*"]
+                "assets/fonts/*", "assets/icons/*", "assets/skyhus.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
