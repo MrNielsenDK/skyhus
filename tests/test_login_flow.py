@@ -382,3 +382,62 @@ def test_restart_failure_after_login_shows_error_and_account_is_logged_in(home, 
     assert "Job for onedrive-privat.service failed." in flow.service_error
     account = discover_accounts(home)[0]
     assert account.logged_in is True
+
+
+# Annullér under stop (feature 0008)
+
+def stopping_flow(home, tmp_path, proc, confdir, *, fail=(), stderr="fejl"):
+    """Start flowet i en tråd. ``systemctl stop`` venter, indtil testen åbner for det."""
+    import threading
+    reached, release = threading.Event(), threading.Event()
+
+    def on_call(args):
+        if "stop" in args:
+            reached.set()
+            assert release.wait(5)
+
+    log = []
+    run = ScriptedRun(outputs={"show": show("active")}, fail=fail, stderr=stderr, log=log,
+                      on_call=on_call)
+    popen = LoggingPopen(log)
+    flow = LoginFlow(confdir, "Privat", SERVICE, registry=Registry.for_home(home), home=home,
+                     popen=popen, run=run, clock=FakeClock(), tmp_base=tmp_path, proc_root=proc)
+    thread = threading.Thread(target=flow.start, daemon=True)
+    thread.start()
+    assert reached.wait(5)
+    return flow, run, popen, release, thread
+
+
+def test_cancel_while_the_service_stops_ends_as_cancelled_without_client(home, tmp_path, proc, privat):
+    flow, run, popen, release, thread = stopping_flow(home, tmp_path, proc, privat)
+
+    flow.cancel()
+    assert flow.cancel_requested is True
+    release.set()
+    thread.join(5)
+
+    assert flow.poll() is FlowState.CANCELLED
+    assert popen.processes == []
+    assert (privat / "refresh_token").read_bytes() == b"gammel-token"
+    assert flow.needs_restart is True
+    flow.restore_service()
+    assert changing_calls(run) == [
+        ["systemctl", "--user", "stop", SERVICE],
+        ["systemctl", "--user", "reset-failed", SERVICE],
+        ["systemctl", "--user", "restart", SERVICE],
+    ]
+
+
+def test_failed_stop_after_cancel_fails_without_client(home, tmp_path, proc, privat):
+    flow, run, popen, release, thread = stopping_flow(
+        home, tmp_path, proc, privat, fail={"stop"}, stderr="Failed to stop: Access denied")
+
+    flow.cancel()
+    assert flow.cancel_requested is True
+    release.set()
+    thread.join(5)
+
+    assert flow.poll() is FlowState.FAILED
+    assert "Access denied" in flow.error
+    assert popen.processes == []
+    assert flow.needs_restart is False

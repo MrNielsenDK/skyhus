@@ -26,11 +26,6 @@ METRIC_TOKENS = {"radiusCard": 10, "radiusControl": 6, "rowHeight": 44, "sidebar
 SPACING_TOKENS = {"spacingXS": 4, "spacingS": 8, "spacingM": 12, "spacingL": 16, "spacingXL": 24}
 
 
-@pytest.fixture(scope="module")
-def app():
-    return QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
-
-
 class FakeHints(QObject):
     """Erstatning for QStyleHints. Testen bestemmer farveskemaet."""
 

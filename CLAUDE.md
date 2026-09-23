@@ -19,7 +19,7 @@ python3 -m onedrive_gui.app                         # skarp tilstand – rammer 
 
 Der er ingen linter eller build-trin ud over setuptools. `python3 -m compileall -q onedrive_gui` fanger syntaksfejl.
 
-Kendt fejl: kører `tests/test_viewmodels.py` før `tests/test_qml.py` i samme proces, crasher Qt (`QCoreApplication` før `QGuiApplication`). Den normale rækkefølge virker.
+Alle tests deler én `QGuiApplication` fra fixturen `app` (`scope="session"`) i `tests/conftest.py`. Ingen testfil må oprette sin egen (`tests/test_suite.py` håndhæver det). Den autouse-fixture `collect_qt_garbage` kører `gc.collect()` efter hver test. Uden den kan en QTimer fra en tidligere `AppController` ramme et objekt, der ikke findes længere, og så segfaulter suiten.
 
 ## Sikkerhed – vigtigst
 
@@ -36,7 +36,7 @@ Maskinen har brugerens rigtige OneDrive-konti (firma i `~/.config/onedrive` med 
 
 **Side-effekter går gennem `sideeffects.py`.** `run`, `popen`, `trash` og `guard_write(path)` er standarden overalt. I sikker tilstand blokerer modulet kommandoer, der ændrer noget, og skrivninger under den rigtige hjemmemappe. Sikker tilstand slår til med `--safe`, `ONEDRIVE_GUI_SAFE_MODE=1`, eller automatisk når `HOME` ikke er brugerens rigtige hjemmemappe. `tests/test_sideeffects.py` gennemgår kildekoden med AST og fejler, hvis et modul bruger `subprocess.*` eller `QFile.moveToTrash` direkte, eller skriver en fil uden `guard_write`. Nye moduler skal følge det. Hver funktion med side-effekter tager en valgfri `run=`/`popen=`/`opener=`, som testene injicerer. En injiceret funktion går foran sikker tilstand.
 
-**Tråde.** Blokerende arbejde (`systemctl` kan vente 90 s pga. `TimeoutStopSec`, `ExecStartPre` sover 15 s, Graph-kald, upload) kører i `_Job`-tråde i `viewmodels.py`. `QTimer`s poller `job.done` i hovedtråden og opdaterer modellerne. Tråde sender ikke Qt-signaler.
+**Tråde.** Blokerende arbejde (`systemctl` kan vente 90 s pga. `TimeoutStopSec`, `ExecStartPre` sover 15 s, Graph-kald, upload) kører i `_Job`-tråde i `viewmodels.py`. `QTimer`s poller `job.done` i hovedtråden og opdaterer modellerne. Tråde sender ikke Qt-signaler. Handlinger, der kan stoppe eller starte en service, registrerer sig i `_critical_jobs`. Så længe en af dem kører, holder `requestClose()` vinduet åbent og viser `ClosingSheet`.
 
 **Konti.** Mapperne på disken afgør, hvilke konti der findes (`discovery.py`). `registry.py` (`~/.config/onedrive-gui/accounts.json`) giver dem kun visningsnavn og service. En konto er logget ind, når `refresh_token` findes.
 

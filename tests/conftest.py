@@ -4,11 +4,36 @@ den rigtige onedrive, systemctl eller Microsoft Graph.
 Sikker tilstand (feature 0007) er slået til i alle tests. Blokeringen af
 ``subprocess`` og ``urlopen`` gælder stadig."""
 
+import gc
+import os
 import subprocess
 import urllib.request
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(scope="session")
+def app():
+    """Én fælles QGuiApplication til alle tests (feature 0008).
+
+    Qt tillader kun 1 application-objekt per proces. Opretter en test en
+    QCoreApplication først, crasher en senere test, der kræver QGuiApplication."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    QtGui = pytest.importorskip("PySide6.QtGui")
+    return QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
+
+
+@pytest.fixture(autouse=True)
+def collect_qt_garbage():
+    """Ryd op efter testen i hovedtråden (feature 0008).
+
+    En test efterlader ofte en AppController i en reference-cyklus. Python kan
+    rydde cyklussen op i en vilkårlig tråd, fx i en _Job-tråd fra en senere test.
+    Så kan en QTimer blive stående uden sit objekt, og Qt crasher med
+    "Segmentation fault" i en senere test."""
+    yield
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)

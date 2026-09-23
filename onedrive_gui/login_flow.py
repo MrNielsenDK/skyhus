@@ -9,12 +9,15 @@ Har kontoen allerede en ``refresh_token``, logger flowet ind igen med
 ``--reauth`` (feature 0005). Kører servicen, stopper flowet den før login og
 starter den igen bagefter, også når login fejler eller bliver afbrudt.
 ``start()`` kan vente på ``systemctl stop``. Brugerfladen kører den i en tråd.
+``cancel()`` virker også, mens servicen stopper (feature 0008). Så starter
+flowet ikke klienten, når stoppet er færdigt.
 """
 
 from __future__ import annotations
 
 import logging
 import subprocess
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -78,7 +81,12 @@ class LoginFlow:
         """Flowet har stoppet servicen og har endnu ikke startet den igen."""
         self.service_was_active = False
         """Servicen kørte, da brugeren klikkede "Log ind"."""
+        self.cancel_requested = False
+        """Brugeren har klikket "Annullér". Flowet starter ikke klienten efter stoppet."""
         self._error = ""
+        # cancel() kan komme fra hovedtråden, mens start() kører i en anden tråd.
+        self._lock = threading.Lock()
+        self._auth_started = False
 
     @property
     def auth_url(self) -> str:
@@ -97,8 +105,14 @@ class LoginFlow:
         if self.reauth and not self._prepare_reauth():
             self.state = FlowState.FAILED
             return
-        self.auth.start()
-        self.poll()
+        with self._lock:
+            if self.cancel_requested:
+                log.info("Login for %s er annulleret, før klienten startede", self.confdir)
+                self.state = FlowState.CANCELLED
+                return
+            self._auth_started = True
+            self.auth.start()
+            self.poll()
 
     def _prepare_reauth(self) -> bool:
         """Afvis fremmede processer, og stop servicen, hvis den kører."""
@@ -145,8 +159,16 @@ class LoginFlow:
         return handled
 
     def cancel(self) -> None:
-        self.auth.cancel()
-        self.poll()
+        """Afbryd login. Mens servicen stopper, afslutter ``start()`` flowet bagefter."""
+        with self._lock:
+            if self.state not in (FlowState.STARTING, FlowState.WAITING_FOR_USER,
+                                  FlowState.WAITING_FOR_TOKEN):
+                return
+            self.cancel_requested = True
+            if not self._auth_started:
+                return
+            self.auth.cancel()
+            self.poll()
 
     def activate_service(self) -> None:
         """Opret og start servicen, eller genstart den eksisterende.

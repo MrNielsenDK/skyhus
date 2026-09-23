@@ -44,6 +44,9 @@ SERVICE_STOPPED_NOTE = "Servicen er stoppet, mens du logger ind"
 PICKER_POLL_INTERVAL_MS = 100
 STATUS_INTERVAL_MS = 3000
 STATUS_POLL_INTERVAL_MS = 100
+CLOSE_POLL_INTERVAL_MS = 100
+ACTION_TEXTS = {"start": "Starter {}", "restart": "Genstarter {}", "resync": "Genstarter {} med --resync"}
+"""Teksten i arket "Applikationen lukker, når arbejdet er færdigt" for hver servicehandling."""
 
 
 class AccountListModel(QAbstractListModel):
@@ -377,6 +380,9 @@ class AppController(QObject):
     messageChanged = Signal()
     pickerChanged = Signal()
     resyncChanged = Signal()
+    closeChanged = Signal()
+    closeReady = Signal()
+    """Vinduet må lukke nu (feature 0008). QML kalder ``close()`` igen."""
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
@@ -427,6 +433,13 @@ class AppController(QObject):
         self._status_poll_timer = QTimer(self)
         self._status_poll_timer.setInterval(STATUS_POLL_INTERVAL_MS)
         self._status_poll_timer.timeout.connect(self._poll_status)
+        # Luk under arbejde (feature 0008). Nøglen er tråden eller _Job-objektet.
+        self._critical_jobs: dict[object, str] = {}
+        self._closing = False
+        self._close_allowed = False
+        self._close_timer = QTimer(self)
+        self._close_timer.setInterval(CLOSE_POLL_INTERVAL_MS)
+        self._close_timer.timeout.connect(self._poll_close)
         self.refresh()
 
     # Egenskaber til QML
@@ -519,6 +532,20 @@ class AppController(QObject):
     resyncAccountName = Property(str, _get_resync_name, notify=resyncChanged)
     """Navnet på kontoen, som venter på bekræftelsen af "Genstart med resync", eller tom."""
 
+    # Luk under arbejde
+
+    def _get_busy_text(self) -> str:
+        return "\n".join(self._critical_jobs.values())
+
+    busyText = Property(str, _get_busy_text, notify=closeChanged)
+    """Handlingerne, der kan stoppe eller starte en service, og som kører nu. 1 per linje."""
+
+    def _get_closing(self) -> bool:
+        return self._closing
+
+    closing = Property(bool, _get_closing, notify=closeChanged)
+    """Brugeren har lukket vinduet, og applikationen venter på handlingerne i ``busyText``."""
+
     # Handlinger fra QML
 
     @Slot()
@@ -587,9 +614,13 @@ class AppController(QObject):
 
     @Slot()
     def cancelLogin(self) -> None:
-        if self._flow is None or self._service_thread is not None:
+        if self._flow is None:
             return
         self._flow.cancel()
+        if self._flow.cancel_requested and self._service_thread is not None:
+            # Tråden stopper servicen. _poll afslutter flowet, når tråden er færdig.
+            self._set_login_state("cancelling")
+            return
         self._poll()
 
     @Slot()
@@ -733,7 +764,45 @@ class AppController(QObject):
             self._resync_confdir = ""
             self.resyncChanged.emit()
 
+    @Slot(result=bool)
+    def requestClose(self) -> bool:
+        """Svar sandt, hvis vinduet må lukke. Ellers vent på handlingerne og send ``closeReady``."""
+        if self._close_allowed or not self._critical_jobs:
+            return True
+        if not self._closing:
+            log.info("Vinduet lukker, når dette er færdigt: %s", "; ".join(self._critical_jobs.values()))
+            self._closing = True
+            self.closeChanged.emit()
+        self._close_timer.start()
+        return False
+
+    @Slot()
+    def forceClose(self) -> None:
+        """Knappen "Luk alligevel". Handlingerne kører videre, indtil processen slutter."""
+        if self._critical_jobs:
+            log.warning("Vinduet lukker, mens disse handlinger kører. Servicen kan blive stående "
+                        "stoppet: %s", "; ".join(self._critical_jobs.values()))
+        self._allow_close()
+
     # Intern styring
+
+    def _begin_critical(self, key: object, text: str) -> None:
+        """Registrér en handling, der kan stoppe eller starte en service."""
+        self._critical_jobs[key] = text
+        self.closeChanged.emit()
+
+    def _end_critical(self, key: object) -> None:
+        if self._critical_jobs.pop(key, None) is not None:
+            self.closeChanged.emit()
+
+    def _poll_close(self) -> None:
+        if self._closing and not self._critical_jobs:
+            self._allow_close()
+
+    def _allow_close(self) -> None:
+        self._close_timer.stop()
+        self._close_allowed = True
+        self.closeReady.emit()
 
     def _start_action(self, account: Account, action: str) -> None:
         confdir = str(account.confdir)
@@ -743,9 +812,10 @@ class AppController(QObject):
         def read_state() -> str:
             return self._status_reader.read_state(account).key
 
-        self._action_jobs[confdir] = _Job(
-            "action", service_control.perform, action, account.service, read_state,
-            home=self._home, run=self._run, clock=self._clock, sleep=self._sleep)
+        job = _Job("action", service_control.perform, action, account.service, read_state,
+                   home=self._home, run=self._run, clock=self._clock, sleep=self._sleep)
+        self._action_jobs[confdir] = job
+        self._begin_critical(job, ACTION_TEXTS[action].format(account.service))
         self._status_poll_timer.start()
 
     def _poll_status(self) -> None:
@@ -763,6 +833,7 @@ class AppController(QObject):
             if not action.done:
                 continue
             del self._action_jobs[confdir]
+            self._end_critical(action)
             self._model.set_busy(confdir, False)
             if action.error is not None:
                 self._model.set_service_message(confdir, self._action_error_text(action.error))
@@ -815,13 +886,20 @@ class AppController(QObject):
         self._picker_timer.start()
 
     def _execute_change(self) -> None:
+        change = self._change
         self._set_picker(state="applying", error="")
-        self._start_job("execute", apply_mod.execute, self._change, home=self._home,
+        self._start_job("execute", apply_mod.execute, change, home=self._home,
                         run=self._run, trash=self._trash, proc_root=self._proc_root)
+        if change.synced:
+            text = f"Gemmer mappevalget for {change.account.name} og genstarter {change.account.service}"
+        else:
+            text = f"Gemmer mappevalget for {change.account.name}"
+        self._begin_critical(self._jobs[-1], text)
 
     def _poll_picker(self) -> None:
         for job in [j for j in self._jobs if j.done]:
             self._jobs.remove(job)
+            self._end_critical(job)
             self._finish_job(job)
         if not self._jobs:
             self._picker_timer.stop()
@@ -901,8 +979,8 @@ class AppController(QObject):
                                popen=self._popen, run=self._run, proc_root=self._proc_root)
         if self._flow.reauth:
             # Flowet stopper måske servicen først. Det kan tage op til 90 sekunder.
-            self._service_thread = threading.Thread(target=self._flow.start, daemon=True)
-            self._service_thread.start()
+            text = f"Stopper {service} før login" if service else f"Starter login for {name}"
+            self._start_service_thread(self._flow.start, text)
             self._set_login_state("starting")
         else:
             self._flow.start()
@@ -916,6 +994,7 @@ class AppController(QObject):
         if self._service_thread is not None:
             if self._service_thread.is_alive():
                 return
+            self._end_critical(self._service_thread)
             self._service_thread = None
         state = flow.poll()
         if state is FlowState.LOGGED_IN and not flow.service and not flow.reauth and not self._folders_chosen:
@@ -934,15 +1013,14 @@ class AppController(QObject):
             return
         if state is FlowState.LOGGED_IN:
             # systemctl kan vente på ExecStartPre i 15 sekunder. Kør det i en tråd.
-            self._service_thread = threading.Thread(target=flow.activate_service, daemon=True)
-            self._service_thread.start()
+            self._start_service_thread(flow.activate_service,
+                                       f"Starter {flow.service or 'servicen for ' + flow.name}")
             self._set_login_state("activating")
             return
         if flow.needs_restart:
             # Login fejlede eller blev afbrudt. Start servicen igen (feature 0005).
-            self._service_thread = threading.Thread(target=flow.restore_service, daemon=True)
-            self._service_thread.start()
-            self._set_login_state("activating")
+            self._start_service_thread(flow.restore_service, f"Starter {flow.service} igen")
+            self._set_login_state("cancelling" if flow.cancel_requested else "activating")
             return
         restart_error = f"\nServicen {flow.service} kunne ikke startes igen:\n{flow.service_error}"
         if state is FlowState.DONE:
@@ -963,6 +1041,11 @@ class AppController(QObject):
             self._end_login()
         else:
             self._set_login_state(state.value)
+
+    def _start_service_thread(self, target, text: str) -> None:
+        self._service_thread = threading.Thread(target=target, daemon=True)
+        self._begin_critical(self._service_thread, text)
+        self._service_thread.start()
 
     def _end_login(self) -> None:
         self._timer.stop()
@@ -992,3 +1075,4 @@ class AppController(QObject):
         self._picker_timer.stop()
         self._status_timer.stop()
         self._status_poll_timer.stop()
+        self._close_timer.stop()

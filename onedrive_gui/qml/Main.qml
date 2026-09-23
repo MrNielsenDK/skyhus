@@ -13,7 +13,8 @@ ApplicationWindow {
     // Sikker tilstand (feature 0007). app.py giver værdien ved start.
     property bool safeMode: false
 
-    readonly property var loginActiveStates: ["starting", "waiting_for_user", "waiting_for_token", "activating"]
+    readonly property var loginActiveStates: ["starting", "waiting_for_user", "waiting_for_token", "activating",
+                                              "cancelling"]
     readonly property bool loginActive: loginActiveStates.indexOf(controller.loginState) >= 0
 
     width: Theme.windowWidth
@@ -248,6 +249,10 @@ ApplicationWindow {
         controller: window.controller
     }
 
+    ClosingSheet {
+        controller: window.controller
+    }
+
     UI.Sheet {
         id: loginPopup
         objectName: "loginPopup"
@@ -313,6 +318,7 @@ ApplicationWindow {
                         case "starting": return "Starter onedrive …"
                         case "waiting_for_token": return "Gemmer login …"
                         case "activating": return "Starter servicen …"
+                        case "cancelling": return "Annullerer …"
                         default: return ""
                         }
                     }
@@ -322,8 +328,10 @@ ApplicationWindow {
 
         buttons: [
             UI.SecondaryButton {
-                text: "Annullér"
+                objectName: "cancelLoginButton"
+                text: window.controller.loginState === "cancelling" ? "Annullerer …" : "Annullér"
                 enabled: window.controller.loginState !== "activating"
+                         && window.controller.loginState !== "cancelling"
                 onClicked: window.controller.cancelLogin()
             }
         ]
@@ -357,6 +365,10 @@ ApplicationWindow {
             if (window.controller.message !== "")
                 messageDialog.open()
         }
+        // Feature 0008: handlingerne er færdige, eller brugeren klikkede "Luk alligevel".
+        function onCloseReady() {
+            window.close()
+        }
     }
 
     // Servicestatus opdateres kun, mens vinduet er synligt og ikke minimeret.
@@ -367,5 +379,9 @@ ApplicationWindow {
 
     onVisibilityChanged: updateStatusTimer()
     Component.onCompleted: updateStatusTimer()
-    onClosing: window.controller.shutdown()
+    // Vinduet venter på handlinger, der stopper eller starter en service (feature 0008).
+    // app.py kalder controller.shutdown(), når vinduet er lukket.
+    onClosing: function(close) {
+        close.accepted = window.controller.requestClose()
+    }
 }

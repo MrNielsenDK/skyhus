@@ -21,11 +21,6 @@ AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?x=1"
 CODE_URL = "https://login.microsoftonline.com/common/oauth2/nativeclient?code=abc"
 
 
-@pytest.fixture(scope="module")
-def app():
-    return QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
-
-
 def wait_for(controller, state, timeout=5.0):
     end = time.monotonic() + timeout
     while controller.loginState != state and time.monotonic() < end:
@@ -653,3 +648,264 @@ def test_shutdown_during_relogin_restores_token_and_service(app, home, tmp_path)
     assert popen.last.terminated
     assert (confdir / "refresh_token").read_text() == "token"
     assert changing(run)[-1] == ["systemctl", "--user", "restart", "onedrive-x.service"]
+
+
+# Luk under arbejde (feature 0008)
+
+class Gate:
+    """Hold et systemctl-kald tilbage, indtil testen åbner for det."""
+
+    def __init__(self, word, service=None):
+        import threading
+        self.word = word
+        self.service = service
+        self.reached = threading.Event()
+        self.release = threading.Event()
+
+    def __call__(self, args):
+        if self.word in args and (self.service is None or self.service in args):
+            self.reached.set()
+            assert self.release.wait(5), "Testen åbnede ikke for kaldet"
+
+
+def gated_run(*gates, **kwargs):
+    def on_call(args):
+        for gate in gates:
+            gate(args)
+
+    return ScriptedRun(on_call=on_call, **kwargs)
+
+
+def pump(controller, predicate, timeout=5.0):
+    end = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < end:
+        controller._poll()
+        controller._poll_picker()
+        controller._poll_status()
+        controller._poll_close()
+        time.sleep(0.01)
+    assert predicate()
+
+
+def close_signals(controller):
+    emitted = []
+    controller.closeReady.connect(lambda: emitted.append(True))
+    return emitted
+
+
+def restarting_controller(home, tmp_path, gate):
+    confdir = service_account(home)
+    clock = Clock()
+    run = gated_run(gate, outputs={"show": service_show("onedrive-x.service")})
+    controller = make_controller(home, tmp_path, run=run, clock=clock, sleep=clock.sleep)
+    read_status_now(controller)
+    return controller, confdir, run
+
+
+def test_request_close_without_critical_work_is_true(app, home, tmp_path):
+    service_account(home)
+    controller = make_controller(home, tmp_path, run=ScriptedRun())
+
+    assert controller.requestClose() is True
+    assert controller.busyText == ""
+
+
+def test_restart_from_service_card_blocks_close(app, home, tmp_path):
+    gate = Gate("restart")
+    controller, confdir, run = restarting_controller(home, tmp_path, gate)
+    emitted = close_signals(controller)
+
+    controller.serviceAction(str(confdir))
+    assert gate.reached.wait(5)
+
+    assert controller.requestClose() is False
+    assert "onedrive-x.service" in controller.busyText
+    assert controller.closing is True
+    controller._poll_close()
+    assert emitted == []
+    gate.release.set()
+    pump(controller, lambda: bool(emitted))
+
+
+def test_window_closes_when_the_work_is_done(app, home, tmp_path):
+    gate = Gate("restart")
+    controller, confdir, run = restarting_controller(home, tmp_path, gate)
+    emitted = close_signals(controller)
+    controller.serviceAction(str(confdir))
+    assert gate.reached.wait(5)
+    assert controller.requestClose() is False
+
+    gate.release.set()
+    pump(controller, lambda: bool(emitted))
+
+    assert emitted == [True]
+    assert controller.busyText == ""
+    assert controller.requestClose() is True
+
+
+def test_apply_execute_blocks_close_until_restart_is_done(app, home, tmp_path):
+    confdir = synced_account(home)
+    (confdir / "sync_list").write_text("/A/\n")
+    gate = Gate("restart")
+    run = gated_run(gate, outputs={"cat": '[Service]\nExecStart=/usr/bin/onedrive --monitor\n'})
+    controller = make_controller(home, tmp_path, run=run, trash=lambda p: True)
+    emitted = close_signals(controller)
+    controller.openFolderPicker(str(confdir))
+    wait_for_picker(controller, "open")
+    controller.toggleFolder(row_of(controller, "B"))
+    controller.acceptPicker()
+    pump(controller, gate.reached.is_set)
+
+    assert controller.requestClose() is False
+    assert controller.busyText != ""
+    controller._poll_close()
+    assert emitted == []
+    gate.release.set()
+    pump(controller, lambda: controller.pickerState == "closed")
+    pump(controller, lambda: bool(emitted))
+
+    assert ["systemctl", "--user", "restart", "onedrive-x.service"] in run.calls
+    assert controller.requestClose() is True
+
+
+def test_relogin_that_stops_the_service_blocks_close(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, popen, run = relogin_controller(home, tmp_path, on_call=gate)
+
+    controller.login(str(confdir))
+    assert gate.reached.wait(5)
+
+    assert controller.requestClose() is False
+    assert "onedrive-x.service" in controller.busyText
+    gate.release.set()
+    wait_for_client(controller, popen)
+    controller.cancelLogin()
+    wait_for(controller, "idle")
+
+
+def test_status_reading_alone_does_not_block_close(app, home, tmp_path):
+    service_account(home)
+    gate = Gate("show")
+    run = gated_run(gate, outputs={"show": service_show("onedrive-x.service")})
+    controller = make_controller(home, tmp_path, run=run)
+
+    controller.refreshStatus()
+    assert gate.reached.wait(5)
+
+    assert controller.requestClose() is True
+    gate.release.set()
+    wait_until(lambda: controller._status_job is None, controller)
+
+
+def test_force_close_closes_while_work_runs_and_logs_a_warning(app, home, tmp_path, caplog):
+    import logging
+    gate = Gate("restart")
+    controller, confdir, run = restarting_controller(home, tmp_path, gate)
+    emitted = close_signals(controller)
+    controller.serviceAction(str(confdir))
+    assert gate.reached.wait(5)
+    assert controller.requestClose() is False
+    text = controller.busyText
+
+    with caplog.at_level(logging.WARNING, logger="onedrive_gui.viewmodels"):
+        controller.forceClose()
+
+    assert emitted == [True]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(text in r.getMessage() for r in warnings)
+    assert controller.requestClose() is True
+    gate.release.set()
+    wait_until(lambda: role(controller, "serviceBusy") is False, controller)
+
+
+def test_window_waits_for_the_last_of_two_actions(app, home, tmp_path):
+    first = service_account(home, "onedrive-x")
+    second = service_account(home, "onedrive-y")
+    gate_x = Gate("restart", "onedrive-x.service")
+    gate_y = Gate("restart", "onedrive-y.service")
+    show = service_show("onedrive-x.service") + "\n" + service_show("onedrive-y.service")
+    clock = Clock()
+    run = gated_run(gate_x, gate_y, outputs={"show": show})
+    controller = make_controller(home, tmp_path, run=run, clock=clock, sleep=clock.sleep)
+    read_status_now(controller)
+    emitted = close_signals(controller)
+
+    controller.serviceAction(str(first))
+    controller.serviceAction(str(second))
+    assert gate_x.reached.wait(5) and gate_y.reached.wait(5)
+    assert controller.requestClose() is False
+    assert "onedrive-x.service" in controller.busyText
+    assert "onedrive-y.service" in controller.busyText
+
+    gate_x.release.set()
+    pump(controller, lambda: "onedrive-x.service" not in controller.busyText)
+    controller._poll_close()
+    assert emitted == []
+    assert controller.requestClose() is False
+
+    gate_y.release.set()
+    pump(controller, lambda: bool(emitted))
+    assert emitted == [True]
+
+
+# Annullér under stop (feature 0008)
+
+def test_cancel_while_the_service_stops_is_cancelling_at_once(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, popen, run = relogin_controller(home, tmp_path, on_call=gate)
+    controller.login(str(confdir))
+    assert gate.reached.wait(5)
+
+    controller.cancelLogin()
+
+    assert controller.loginState == "cancelling"
+    gate.release.set()
+    wait_for(controller, "idle")
+
+
+def test_cancel_during_stop_does_not_start_the_client(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, popen, run = relogin_controller(home, tmp_path, on_call=gate)
+    controller.login(str(confdir))
+    assert gate.reached.wait(5)
+
+    controller.cancelLogin()
+    gate.release.set()
+    wait_for(controller, "idle")
+
+    assert popen.processes == []
+    assert (confdir / "refresh_token").read_text() == "token"
+    assert (confdir / "refresh_token").stat().st_mode & 0o777 == 0o600
+
+
+def test_cancel_during_stop_starts_an_active_service_again(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, popen, run = relogin_controller(home, tmp_path, on_call=gate)
+    controller.login(str(confdir))
+    assert gate.reached.wait(5)
+
+    controller.cancelLogin()
+    gate.release.set()
+    wait_for(controller, "idle")
+
+    assert changing(run) == [["systemctl", "--user", "stop", "onedrive-x.service"],
+                             ["systemctl", "--user", "reset-failed", "onedrive-x.service"],
+                             ["systemctl", "--user", "restart", "onedrive-x.service"]]
+
+
+def test_failed_stop_after_cancel_shows_the_error(app, home, tmp_path):
+    gate = Gate("stop")
+    controller, confdir, popen, run = relogin_controller(
+        home, tmp_path, on_call=gate, fail={"stop"},
+        stderr="Failed to stop onedrive-x.service: Access denied")
+    controller.login(str(confdir))
+    assert gate.reached.wait(5)
+
+    controller.cancelLogin()
+    assert controller.loginState == "cancelling"
+    gate.release.set()
+    wait_for(controller, "idle")
+
+    assert "Access denied" in controller.message
+    assert popen.processes == []
+    assert (confdir / "refresh_token").read_text() == "token"

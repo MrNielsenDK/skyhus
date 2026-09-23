@@ -2,6 +2,16 @@
 
 Projektet følger [Keep a Changelog](https://keepachangelog.com/) og [SemVer](https://semver.org/).
 
+## [0.5.3] - 2026-09-23
+
+### Fixed
+- Lukker brugeren vinduet, mens applikationen stopper eller starter en service, venter vinduet på handlingen. Arket "Applikationen lukker, når arbejdet er færdigt" viser handlingen. Vinduet lukker af sig selv bagefter. "Luk alligevel" viser først en advarsel. Se `docs/features/0008-oprydning-luk-annuller-tests-readme.md`.
+- "Annullér" virker nu, mens applikationen stopper servicen før et login med `--reauth`. Knappen viser "Annullerer …". Applikationen starter ikke `onedrive` og starter servicen igen, hvis den kørte før. Se `docs/features/0008-oprydning-luk-annuller-tests-readme.md`.
+- Testsuiten består i alle rækkefølger. Alle tests bruger én fælles `QGuiApplication` fra `tests/conftest.py`. Se `docs/features/0008-oprydning-luk-annuller-tests-readme.md`.
+
+### Changed
+- `README.md` beskriver mappevælgeren, papirkurven, kortet "Service" og login igen med `--reauth`. Se `docs/features/0008-oprydning-luk-annuller-tests-readme.md`.
+
 ## [0.5.2] - 2026-09-23
 
 ### Fixed

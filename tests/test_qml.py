@@ -22,11 +22,6 @@ from conftest import make_account_dir  # noqa: E402
 from fakes import FakeGraph, ScriptedRun, folder  # noqa: E402
 
 
-@pytest.fixture(scope="module")
-def app():
-    return QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
-
-
 @pytest.fixture
 def load(app):
     engines = []
@@ -358,3 +353,45 @@ def test_banner_is_hidden_without_safe_mode(load, home, monkeypatch):
     assert root.property("safeMode") is False
     banner = root.findChild(QObject, "safeModeBanner")
     assert banner is None or banner.property("visible") is False
+
+
+# Luk under arbejde (feature 0008)
+
+def test_closing_during_a_restart_shows_the_closing_sheet(load, home, tmp_path):
+    import threading
+    import time
+    from fakes import ScriptedRun
+    service_home(home)
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    reached, release = threading.Event(), threading.Event()
+
+    def on_call(args):
+        if "restart" in args:
+            reached.set()
+            release.wait(5)
+
+    run = ScriptedRun(outputs={"show": service_show("onedrive-x.service")}, on_call=on_call)
+    engine, controller, warnings = load(home, run=run, proc_root=proc)
+    root = engine.rootObjects()[0]
+    app = QtGui.QGuiApplication.instance()
+    read_status(controller)
+    controller.serviceAction(str(home / ".config" / "onedrive-x"))
+    assert reached.wait(5)
+
+    root.close()
+    app.processEvents()
+
+    assert root.property("visible") is True
+    sheet = root.findChild(QObject, "closingSheet")
+    assert sheet.property("visible") is True
+    assert "onedrive-x.service" in root.findChild(QObject, "closingText").property("text")
+    release.set()
+    end = time.monotonic() + 5
+    while root.property("visible") and time.monotonic() < end:
+        controller._poll_status()
+        controller._poll_close()
+        app.processEvents()
+        time.sleep(0.01)
+    assert root.property("visible") is False
+    assert warnings == []
