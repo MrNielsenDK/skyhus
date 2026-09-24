@@ -92,6 +92,21 @@ After a click, Skyhus waits for up to 120 seconds until the service runs or fail
 If the service does not become stable, the card shows "The service does not respond.".
 If `systemctl` cannot do the action, the card shows the message from `systemctl`.
 
+## Supported desktops
+
+Skyhus works on these desktops, on Wayland and on X11:
+
+- KDE Plasma 6,
+- GNOME 46 or later.
+
+Skyhus needs these versions or later:
+
+- Python 3.12,
+- PySide6 6.8 with QtQuick, QtQuickControls2, QtSvg and QtWebEngineQuick,
+- `onedrive` (abraunegg) 2.5.
+
+On GNOME on Wayland, Skyhus uses the Qt title bar plugin `adwaita`, if it is installed. Then the title bar looks like the title bars of GNOME applications. To use a different title bar, set `QT_WAYLAND_DECORATION` yourself.
+
 ## Install the dependencies
 
 Skyhus uses the system packages from Ubuntu/Debian:

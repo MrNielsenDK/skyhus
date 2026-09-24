@@ -315,3 +315,16 @@ def test_main_prints_result(home, monkeypatch, capsys, caplog):
     assert install.main(["skyhus.install"]) == 0
 
     assert str(home / "x") in capsys.readouterr().out
+
+
+def test_missing_kbuildsycoca6_gives_no_warning(home):
+    """GNOME has no kbuildsycoca6 (feature 0015)."""
+    def run(args, **kwargs):
+        if args[0] == "kbuildsycoca6":
+            raise FileNotFoundError(args[0])
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    result = do_install(home, run=run)
+
+    assert result.error == ""
+    assert result.warnings == []

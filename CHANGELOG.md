@@ -2,6 +2,12 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.11.0] - 2026-09-23
+
+### Added
+- On GNOME on Wayland, Skyhus uses the Qt title bar plugin `adwaita`, if it is installed. The title bar then looks like the title bars of GNOME applications. A value that the user sets in `QT_WAYLAND_DECORATION` always wins. See `docs/features/0015-gnome-support.md`.
+- `README.md` has the section "Supported desktops" with KDE Plasma 6, GNOME 46 or later, and the minimum versions of Python, PySide6 and `onedrive`. See `docs/features/0015-gnome-support.md`.
+
 ## [0.10.0] - 2026-09-23
 
 ### Changed

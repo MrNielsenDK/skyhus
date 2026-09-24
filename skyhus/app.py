@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QCoreApplication, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QByteArray, QCoreApplication, QLibraryInfo, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage, QPainter
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
 
-from . import sideeffects
+from . import desktop, sideeffects
 from . import theme  # noqa: F401 - registers the Theme singleton in QML
 from .viewmodels import AppController
 
@@ -90,11 +91,26 @@ def load_main(engine: QQmlApplicationEngine, controller: AppController) -> None:
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
 
 
+def use_gnome_title_bar(environ=None) -> None:
+    """On GNOME on Wayland, use the title bar plugin ``adwaita`` (feature 0015).
+
+    Qt reads the variable when it makes the application, so this must run before.
+    """
+    environ = os.environ if environ is None else environ
+    plugin_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)
+    decoration = desktop.wayland_decoration(environ, plugin_dir)
+    if decoration is not None:
+        environ[desktop.DECORATION_VAR] = decoration
+    elif desktop.is_gnome_wayland(environ) and not environ.get(desktop.DECORATION_VAR):
+        log.info("GNOME: the adwaita title bar plugin is missing. Qt draws its default title bar.")
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     # Safe mode is fixed from here. --safe is one of the conditions.
     sideeffects.init(sys.argv)
     init_webengine()
+    use_gnome_title_bar()
     app = QGuiApplication(sys.argv)
     app.setApplicationName("skyhus")
     app.setApplicationDisplayName("Skyhus")
