@@ -244,6 +244,11 @@ def format_since(value: str, now: datetime) -> str:
     when = parse_timestamp(value)
     if when is None:
         return ""
+    return format_when(when, now)
+
+
+def format_when(when: datetime, now: datetime) -> str:
+    """The same text as ``format_since()`` for a ``datetime`` (feature 0019)."""
     clock = f"at {when:%H:%M}"
     today: date = now.date()
     if when.date() == today:

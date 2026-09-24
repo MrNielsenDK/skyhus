@@ -153,6 +153,43 @@ def read_latest_error(service: str, run: Run | None = None) -> str:
     return latest_error(parse_entries(result.stdout or ""))
 
 
+ACTIVITY_LIMIT = 50_000
+ACTIVITY_SINCE = "-24h"
+
+
+def activity_command(service: str, after_cursor: str = "", limit: int = ACTIVITY_LIMIT,
+                     since: str = ACTIVITY_SINCE) -> list[str]:
+    cmd = ["journalctl", "--user", "-u", service, "-o", "json", "--no-pager", "-n", str(limit)]
+    if after_cursor:
+        cmd.append(f"--after-cursor={after_cursor}")
+    else:
+        cmd += ["--since", since]
+    return cmd
+
+
+def activity_lines(service: str, after_cursor: str = "", limit: int = ACTIVITY_LIMIT,
+                   since: str = ACTIVITY_SINCE, run: Run | None = None) -> tuple[list[Entry], str, bool]:
+    """The lines for the card "Activity" (feature 0019), the last cursor, and whether the limit was reached.
+
+    Without a cursor, the function reads the lines ``since``. With a cursor, only the lines after it.
+    """
+    run = run or sideeffects.run
+    cmd = activity_command(service, after_cursor, limit, since)
+    try:
+        result = run(cmd, capture_output=True, text=True, timeout=JOURNALCTL_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log.warning("Cannot read the journal for %s: %s", service, exc)
+        return [], after_cursor, False
+    if result.returncode != 0:
+        log.warning("journalctl failed for %s: %s", service, (result.stderr or "").strip())
+        return [], after_cursor, False
+    entries, cursor = [], after_cursor
+    for data in _records(result.stdout or ""):
+        entries.append(_entry(data))
+        cursor = str(data.get("__CURSOR") or cursor)
+    return entries, cursor, len(entries) >= limit
+
+
 def invocation_lines(service: str, invocation_id: str, after_cursor: str = "",
                      run: Run | None = None) -> tuple[list[Entry], str]:
     """The lines from the run ``invocation_id`` of the service, and the last cursor.

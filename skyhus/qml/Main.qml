@@ -265,6 +265,10 @@ ApplicationWindow {
         controller: window.controller
     }
 
+    AllFilesSheet {
+        controller: window.controller
+    }
+
     ClosingSheet {
         controller: window.controller
     }

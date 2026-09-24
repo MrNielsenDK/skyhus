@@ -173,3 +173,55 @@ def test_invocation_lines_gives_nothing_when_journalctl_fails():
 
     assert journal.invocation_lines("onedrive-privat.service", INVOCATION,
                                     after_cursor="s=1;i=b", run=run) == ([], "s=1;i=b")
+
+
+# Activity (feature 0019)
+
+def test_activity_lines_first_call_reads_24_hours():
+    import subprocess
+    from skyhus.journal import activity_lines
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(list(args))
+        out = json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "1", "MESSAGE": "Downloading file: a ... done",
+                          "__REALTIME_TIMESTAMP": "1790143816000000", "__CURSOR": "c1"}) + "\n"
+        return subprocess.CompletedProcess(args, 0, stdout=out, stderr="")
+
+    entries, cursor, truncated = activity_lines("onedrive-x.service", run=run)
+
+    assert calls[0][:5] == ["journalctl", "--user", "-u", "onedrive-x.service", "-o"]
+    assert "--since" in calls[0] and "-24h" in calls[0]
+    assert "-n" in calls[0] and "50000" in calls[0]
+    assert [e.message for e in entries] == ["Downloading file: a ... done"]
+    assert cursor == "c1"
+    assert truncated is False
+
+
+def test_activity_lines_with_cursor_reads_only_new_lines():
+    import subprocess
+    from skyhus.journal import activity_lines
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(list(args))
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    entries, cursor, truncated = activity_lines("onedrive-x.service", after_cursor="c1", run=run)
+
+    assert "--after-cursor=c1" in calls[0]
+    assert "--since" not in calls[0]
+    assert cursor == "c1"
+
+
+def test_activity_lines_tells_when_the_limit_is_reached():
+    import subprocess
+    from skyhus.journal import activity_lines
+
+    def run(args, **kwargs):
+        line = json.dumps({"SYSLOG_IDENTIFIER": "onedrive", "_PID": "1", "MESSAGE": "x", "__CURSOR": "c"})
+        return subprocess.CompletedProcess(args, 0, stdout=(line + "\n") * 3, stderr="")
+
+    entries, cursor, truncated = activity_lines("onedrive-x.service", limit=3, run=run)
+
+    assert truncated is True

@@ -2,6 +2,12 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.13.0] - 2026-09-24
+
+### Added
+- The account page has the card "Activity" with the last 24 hours from the journal of the service: a summary with the last sync and the numbers of downloaded, uploaded, deleted and failed files, the problems grouped by kind, and the newest files. "Copy problems" copies the problems to the clipboard. See `docs/features/0019-activity-and-problems.md`.
+- The sheet "Files in the last 24 hours" shows the newest 200 files. See `docs/features/0019-activity-and-problems.md`.
+
 ## [0.12.0] - 2026-09-24
 
 ### Added

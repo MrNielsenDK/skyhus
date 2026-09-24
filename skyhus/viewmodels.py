@@ -7,8 +7,10 @@ import os
 import threading
 import time
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtCore import (
     Property,
     QAbstractListModel,
@@ -23,12 +25,14 @@ from PySide6.QtCore import (
 )
 
 from . import account_removal as removal_mod
+from . import activity as activity_mod
 from . import apply as apply_mod
 from . import service_control, sideeffects
 from .accounts import Account, home_dir
 from .config import read_skip_dir_strict, read_skip_dirs, read_sync_root_files
 from .discovery import discover_accounts
 from .graph import Folder, GraphClient, GraphError
+from .journal import activity_lines
 from .login_flow import FlowState, LoginFlow
 from .naming import NamingError, plan_new_account, suggest_sync_dir, validate_display_name
 from .process import PROC_ROOT
@@ -48,6 +52,7 @@ from .service_state import (
     AccountStatus,
     ServiceState,
     StatusReader,
+    format_when,
     initial_status,
 )
 from .synclist import Selection, SelectionError, read_sync_list
@@ -108,6 +113,23 @@ def progress_data(status: AccountStatus, now: float) -> dict:
 
 
 REMOVE_POLL_INTERVAL_MS = 100
+ACTIVITY_INTERVAL_MS = 30_000
+"""How often the card "Activity" reads new journal lines while the window is visible (feature 0019)."""
+ACTIVITY_POLL_INTERVAL_MS = 100
+RECENT_FILES_SHOWN = 20
+ALL_FILES_SHOWN = 200
+ACTIVITY_ICONS = {activity_mod.DOWNLOADED: "arrow-down", activity_mod.UPLOADED: "arrow-up",
+                  activity_mod.DELETED_ONLINE: "trash-2", activity_mod.DELETED_LOCAL: "trash-2",
+                  activity_mod.FAILED: "circle-alert"}
+ACTIVITY_VERBS = {activity_mod.DOWNLOADED: "Downloaded", activity_mod.UPLOADED: "Uploaded",
+                  activity_mod.DELETED_ONLINE: "Deleted on OneDrive", activity_mod.DELETED_LOCAL: "Deleted locally",
+                  activity_mod.FAILED: "Failed"}
+
+
+def read_activity(service: str, cursor: str, run) -> tuple[list[activity_mod.Event], str, bool]:
+    """Read and parse the journal lines for the card "Activity". Runs in a _Job thread (feature 0019)."""
+    entries, cursor, truncated = activity_lines(service, after_cursor=cursor, run=run)
+    return activity_mod.parse(entries), cursor, truncated
 LOCAL_ONLY_SHOWN = 10
 """The number of paths that the sheet "Remove account?" shows of the files that are only local (feature 0018)."""
 
@@ -515,6 +537,7 @@ class AppController(QObject):
     applyChanged = Signal()
     cancelResyncChanged = Signal()
     removeChanged = Signal()
+    activityChanged = Signal()
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
@@ -603,6 +626,21 @@ class AppController(QObject):
         self._remove_timer = QTimer(self)
         self._remove_timer.setInterval(REMOVE_POLL_INTERVAL_MS)
         self._remove_timer.timeout.connect(self._poll_remove)
+        # The card "Activity" (feature 0019). Per account: the events of 24 hours and the journal cursor.
+        self._activity: dict[str, activity_mod.Activity] = {}
+        self._activity_cursor: dict[str, str] = {}
+        self._activity_confdir = ""
+        self._activity_job: _Job | None = None
+        self._activity_job_confdir = ""
+        self._activity_job_full = False
+        self._activity_pending: tuple[str, bool] | None = None
+        self._all_files_open = False
+        self._activity_timer = QTimer(self)
+        self._activity_timer.setInterval(ACTIVITY_INTERVAL_MS)
+        self._activity_timer.timeout.connect(self._read_current_activity)
+        self._activity_poll_timer = QTimer(self)
+        self._activity_poll_timer.setInterval(ACTIVITY_POLL_INTERVAL_MS)
+        self._activity_poll_timer.timeout.connect(self._poll_activity)
         self.refresh()
 
     # Properties for QML
@@ -844,6 +882,73 @@ class AppController(QObject):
             lines.append(f"The sync folder {plan.sync_path}")
         return lines
 
+    # The card "Activity" (feature 0019)
+
+    def _current_activity(self) -> activity_mod.Activity | None:
+        return self._activity.get(self._activity_confdir)
+
+    def _get_activity_state(self) -> str:
+        account = self._find_account(self._activity_confdir) if self._activity_confdir else None
+        if account is None:
+            return "none"
+        if not account.service:
+            return "no_service"
+        if self._current_activity() is None:
+            return "loading"
+        return "ready"
+
+    activityState = Property(str, _get_activity_state, notify=activityChanged)
+    """``none``, ``no_service``, ``loading`` or ``ready`` for the account on the page."""
+
+    def _get_activity_summary(self) -> str:
+        log_ = self._current_activity()
+        return log_.summary(datetime.now()) if log_ is not None else ""
+
+    activitySummary = Property(str, _get_activity_summary, notify=activityChanged)
+
+    def _get_activity_problems(self) -> list:
+        log_ = self._current_activity()
+        if log_ is None:
+            return []
+        now = datetime.now()
+        rows = []
+        for problem in log_.problems():
+            detail = activity_mod.problem_line(problem, now)[len(problem.title) + len(" · "):]
+            rows.append({"title": problem.title, "detail": detail, "tone": problem.tone})
+        return rows
+
+    activityProblems = Property("QVariantList", _get_activity_problems, notify=activityChanged)
+
+    def _file_rows(self, limit: int) -> list:
+        log_ = self._current_activity()
+        if log_ is None:
+            return []
+        now = datetime.now()
+        return [{"icon": ACTIVITY_ICONS[e.kind], "verb": ACTIVITY_VERBS[e.kind], "path": e.path,
+                 "when": format_when(datetime.fromtimestamp(e.when), now),
+                 "tone": "danger" if e.kind == activity_mod.FAILED else "textSecondary"}
+                for e in log_.recent(limit)]
+
+    def _get_activity_recent(self) -> list:
+        return self._file_rows(RECENT_FILES_SHOWN)
+
+    activityRecent = Property("QVariantList", _get_activity_recent, notify=activityChanged)
+
+    def _get_all_files(self) -> list:
+        return self._file_rows(ALL_FILES_SHOWN) if self._all_files_open else []
+
+    activityAllFiles = Property("QVariantList", _get_all_files, notify=activityChanged)
+
+    def _get_all_files_open(self) -> bool:
+        return self._all_files_open
+
+    allFilesOpen = Property(bool, _get_all_files_open, notify=activityChanged)
+
+    def _get_activity_loading(self) -> bool:
+        return self._activity_job is not None and self._activity_job_confdir == self._activity_confdir
+
+    activityLoading = Property(bool, _get_activity_loading, notify=activityChanged)
+
     # Close during work
 
     def _get_busy_text(self) -> str:
@@ -1032,10 +1137,12 @@ class AppController(QObject):
         if visible and not self._status_timer.isActive():
             self._status_timer.start()
             self._progress_timer.start()
+            self._activity_timer.start()
             self.refreshStatus()
         elif not visible:
             self._status_timer.stop()
             self._progress_timer.stop()
+            self._activity_timer.stop()
 
     @Slot()
     def refreshStatus(self) -> None:
@@ -1203,6 +1310,43 @@ class AppController(QObject):
             self._remove_error = ""
             self._set_remove_state("")
 
+    @Slot(str)
+    def openActivity(self, confdir: str) -> None:
+        """The page shows ``confdir``. Read its activity: all 24 hours the first time, then the new lines."""
+        if confdir != self._activity_confdir:
+            self._activity_confdir = confdir
+            self._all_files_open = False
+            self.activityChanged.emit()
+        if confdir:
+            self._start_activity_read(confdir, full=confdir not in self._activity)
+
+    @Slot()
+    def refreshActivity(self) -> None:
+        """The button "Refresh": read the last 24 hours again."""
+        if self._activity_confdir:
+            self._start_activity_read(self._activity_confdir, full=True)
+
+    @Slot()
+    def copyProblems(self) -> None:
+        log_ = self._current_activity()
+        if log_ is None:
+            return
+        text = activity_mod.problems_text(log_.problems(), datetime.now())
+        if text:
+            QGuiApplication.clipboard().setText(text)
+
+    @Slot()
+    def showAllFiles(self) -> None:
+        if self._current_activity() is not None and not self._all_files_open:
+            self._all_files_open = True
+            self.activityChanged.emit()
+
+    @Slot()
+    def closeAllFiles(self) -> None:
+        if self._all_files_open:
+            self._all_files_open = False
+            self.activityChanged.emit()
+
     @Slot(result=bool)
     def requestClose(self) -> bool:
         """Return true if the window can close. Otherwise wait for the actions and send ``closeReady``."""
@@ -1242,6 +1386,51 @@ class AppController(QObject):
         self._close_timer.stop()
         self._close_allowed = True
         self.closeReady.emit()
+
+    def _read_current_activity(self) -> None:
+        if self._activity_confdir:
+            self._start_activity_read(self._activity_confdir, full=self._activity_confdir not in self._activity)
+
+    def _start_activity_read(self, confdir: str, *, full: bool) -> None:
+        account = self._find_account(confdir)
+        if account is None or not account.service:
+            return
+        if self._activity_job is not None:
+            # 1 read at a time. The newest request waits. A full read wins over a read of the new lines.
+            pending = self._activity_pending
+            same = pending is not None and pending[0] == confdir
+            self._activity_pending = (confdir, full or (same and pending[1]))
+            return
+        cursor = "" if full else self._activity_cursor.get(confdir, "")
+        self._activity_job = _Job("activity", read_activity, account.service, cursor, self._run)
+        self._activity_job_confdir = confdir
+        self._activity_job_full = full or not cursor
+        self._activity_poll_timer.start()
+        self.activityChanged.emit()
+
+    def _poll_activity(self) -> None:
+        job = self._activity_job
+        if job is None or not job.done:
+            return
+        self._activity_job = None
+        self._activity_poll_timer.stop()
+        confdir = self._activity_job_confdir
+        if job.error is not None:
+            log.error("Unexpected error when the application read the activity", exc_info=job.error)
+        else:
+            events, cursor, truncated = job.result
+            log_ = self._activity.get(confdir)
+            if log_ is None or self._activity_job_full:
+                log_ = activity_mod.Activity()
+                log_.replace(events, time.time(), truncated)
+                self._activity[confdir] = log_
+            else:
+                log_.add(events, time.time())
+            self._activity_cursor[confdir] = cursor
+        pending, self._activity_pending = self._activity_pending, None
+        self.activityChanged.emit()
+        if pending is not None:
+            self._start_activity_read(pending[0], full=pending[1])
 
     def _set_remove_state(self, state: str) -> None:
         if state != self._remove_state:
@@ -1654,3 +1843,5 @@ class AppController(QObject):
         self._progress_timer.stop()
         self._close_timer.stop()
         self._remove_timer.stop()
+        self._activity_timer.stop()
+        self._activity_poll_timer.stop()

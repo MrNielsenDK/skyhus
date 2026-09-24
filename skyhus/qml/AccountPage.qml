@@ -28,6 +28,10 @@ Item {
     property var serviceProgress: ({})
     property bool serviceCancellable: false
 
+    // The card "Activity" reads the journal of the account on the page (feature 0019).
+    onConfdirChanged: controller.openActivity(confdir)
+    Component.onCompleted: controller.openActivity(confdir)
+
     Flickable {
         id: flick
         anchors.fill: parent
@@ -130,6 +134,10 @@ Item {
                 cancellable: page.serviceCancellable
                 onActionClicked: page.controller.serviceAction(page.confdir)
                 onCancelResyncClicked: page.controller.requestCancelResync(page.confdir)
+            }
+
+            UI.ActivityCard {
+                controller: page.controller
             }
 
             UI.Card {

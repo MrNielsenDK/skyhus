@@ -14,6 +14,7 @@ Skyhus can:
 - choose which folders on OneDrive each account syncs,
 - show the state of the service for each account and start or restart it,
 - show the progress during upload, move to Trash and `--resync`,
+- show the activity and the problems of the last 24 hours for each account,
 - remove an account.
 
 ## Add an account
@@ -92,6 +93,18 @@ If you close Skyhus and open it again, Skyhus reads the full journal for the cur
 After a click, Skyhus waits for up to 120 seconds until the service runs or fails.
 If the service does not become stable, the card shows "The service does not respond.".
 If `systemctl` cannot do the action, the card shows the message from `systemctl`.
+
+## Activity
+
+The card "Activity" on each account shows the last 24 hours from the journal of the service:
+
+- a summary, for example "Last sync: today at 08:34 · 24 h: 120 downloaded, 3 uploaded, 12 failed",
+- the problems, 1 row for each kind, with the number of times, the newest time and an example path. Failed files and errors are red. Other problems, such as no connection, are orange.
+- the 20 newest files that the client downloaded, uploaded or deleted. "Show all" shows the newest 200.
+
+"Copy problems" copies the problem rows to the clipboard. "Refresh" reads the last 24 hours again.
+While the window is visible, Skyhus reads the new journal lines every 30 seconds. It keeps the activity only in memory.
+Skyhus reads at most 50,000 lines in one call. The card only reads the journal, so it also works in safe mode.
 
 ## Remove an account
 
