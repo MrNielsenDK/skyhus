@@ -20,8 +20,9 @@ def app():
     Qt allows only 1 application object per process. If a test creates a
     QCoreApplication first, a later test that needs QGuiApplication crashes."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    QtGui = pytest.importorskip("PySide6.QtGui")
-    return QtGui.QGuiApplication.instance() or QtGui.QGuiApplication([])
+    # QApplication, because the tray icon needs Qt Widgets (feature 0020).
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
 
 @pytest.fixture(autouse=True)

@@ -15,7 +15,9 @@ _seen = []
 def test_conftest_gives_the_same_qguiapplication_to_all_tests(app, round):
     QtGui = pytest.importorskip("PySide6.QtGui")
 
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
     assert isinstance(app, QtGui.QGuiApplication)
+    assert isinstance(app, QtWidgets.QApplication)
     assert app is QtGui.QGuiApplication.instance()
     _seen.append(app)
     assert all(seen is app for seen in _seen)

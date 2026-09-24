@@ -9,9 +9,11 @@ from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QCoreApplication, QLibraryInfo, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QImage, QPainter
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickImageProvider
 from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from . import desktop, sideeffects
 from . import theme  # noqa: F401 - registers the Theme singleton in QML
@@ -85,9 +87,58 @@ def init_webengine() -> bool:
     return True
 
 
-def load_main(engine: QQmlApplicationEngine, controller: AppController) -> None:
+BACKGROUND_FLAG = "--background"
+"""Start without a window, only with the tray icon (feature 0020)."""
+SHOW_MESSAGE = b"show\n"
+CONNECT_TIMEOUT_MS = 500
+
+
+def socket_name() -> str:
+    """The local socket that makes sure that Skyhus runs only once for each user (feature 0020)."""
+    return f"skyhus-{os.getuid()}"
+
+
+def single_instance(name: str, on_show) -> QLocalServer | None:
+    """Listen on the socket ``name``, or tell a running Skyhus to show its window.
+
+    Returns the server when this is the only Skyhus. Returns ``None`` when a
+    Skyhus runs already. Then that Skyhus got "show", and this start must quit.
+    """
+    socket = QLocalSocket()
+    socket.connectToServer(name)
+    if socket.waitForConnected(CONNECT_TIMEOUT_MS):
+        socket.write(SHOW_MESSAGE)
+        socket.flush()
+        socket.waitForBytesWritten(CONNECT_TIMEOUT_MS)
+        socket.disconnectFromServer()
+        log.info("Skyhus runs already. It shows its window.")
+        return None
+    # A socket file that is left after a crash would stop listen().
+    QLocalServer.removeServer(name)
+    server = QLocalServer()
+    if not server.listen(name):
+        log.warning("Cannot listen on %s: %s", name, server.errorString())
+        return server
+
+    def on_connection() -> None:
+        while server.hasPendingConnections():
+            connection = server.nextPendingConnection()
+
+            def on_ready(conn=connection) -> None:
+                if bytes(conn.readAll()).strip() == SHOW_MESSAGE.strip():
+                    on_show()
+                conn.disconnectFromServer()
+
+            connection.readyRead.connect(on_ready)
+
+    server.newConnection.connect(on_connection)
+    return server
+
+
+def load_main(engine: QQmlApplicationEngine, controller: AppController, *, start_hidden: bool = False) -> None:
     engine.addImageProvider("icon", IconProvider())
-    engine.setInitialProperties({"controller": controller, "safeMode": sideeffects.safe_mode()})
+    engine.setInitialProperties({"controller": controller, "safeMode": sideeffects.safe_mode(),
+                                 "startHidden": start_hidden})
     engine.load(QUrl.fromLocalFile(str(QML_DIR / "Main.qml")))
 
 
@@ -111,7 +162,8 @@ def main() -> int:
     sideeffects.init(sys.argv)
     init_webengine()
     use_gnome_title_bar()
-    app = QGuiApplication(sys.argv)
+    # QApplication, because the tray icon needs Qt Widgets (feature 0020).
+    app = QApplication(sys.argv)
     app.setApplicationName("skyhus")
     app.setApplicationDisplayName("Skyhus")
     # On Wayland, the panel finds the icon through skyhus.desktop (feature 0013).
@@ -122,13 +174,33 @@ def main() -> int:
     # The controls draw the design themselves. The "Basic" style keeps the KDE style out.
     QQuickStyle.setStyle("Basic")
 
+    shown = []
+    server = single_instance(socket_name(), lambda: shown and shown[0].showWindow())
+    if server is None:
+        return 0
+
+    tray_ok = QSystemTrayIcon.isSystemTrayAvailable()
+    # With the tray, Skyhus keeps running when the window is hidden. "Quit Skyhus" ends it.
+    app.setQuitOnLastWindowClosed(not tray_ok)
     controller = AppController()
+    shown.append(controller)
+    controller.setTrayActive(tray_ok)
+    controller.quitReady.connect(app.quit)
     engine = QQmlApplicationEngine()
-    load_main(engine, controller)
+    background = BACKGROUND_FLAG in sys.argv[1:] and tray_ok
+    load_main(engine, controller, start_hidden=background)
     if not engine.rootObjects():
         return 1
+    tray = None
+    if tray_ok:
+        from .tray import Tray
+        tray = Tray(controller)
+        tray.show()
+    else:
+        log.info("The desktop has no tray. Closing the window quits Skyhus.")
     code = app.exec()
     controller.shutdown()
+    del tray
     # The window must go before the controller that QML binds to.
     del engine
     return code

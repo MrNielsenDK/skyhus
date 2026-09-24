@@ -33,7 +33,10 @@ DESKTOP_MARKER = "X-Skyhus-Installer=true"
 ICON_SOURCE = Path(__file__).resolve().parent / "assets" / "skyhus.svg"
 REPO_DIR = Path(__file__).resolve().parent.parent
 APT_LINE = ("sudo apt install onedrive python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 "
-            "python3-pyside6.qtwebenginequick python3-pyside6.qtsvg")
+            "python3-pyside6.qtwebenginequick python3-pyside6.qtsvg python3-pyside6.qtwidgets "
+            "python3-pyside6.qtnetwork")
+REQUIRED_MODULES = ("PySide6.QtQuick", "PySide6.QtWidgets", "PySide6.QtNetwork")
+"""QtWidgets and QtNetwork are for the tray icon and the single instance (feature 0020)."""
 
 Run = Callable[..., subprocess.CompletedProcess]
 FindSpec = Callable[[str], object]
@@ -61,6 +64,11 @@ def script_path(home: Path) -> Path:
 
 def desktop_path(home: Path) -> Path:
     return home / ".local" / "share" / "applications" / f"{APP_ID}.desktop"
+
+
+def autostart_path(home: Path) -> Path:
+    """The file for "Start Skyhus at login" (feature 0020)."""
+    return home / ".config" / "autostart" / f"{APP_ID}.desktop"
 
 
 def icon_path(home: Path) -> Path:
@@ -207,8 +215,9 @@ def install(home: Path | None = None, repo: Path = REPO_DIR, *, python: str | No
     find_spec = find_spec or importlib.util.find_spec
     result = Result()
 
-    if find_spec("PySide6.QtQuick") is None:
-        result.error = f"PySide6 with QtQuick is missing. Install the system packages:\n  {APT_LINE}"
+    missing = [name for name in REQUIRED_MODULES if find_spec(name) is None]
+    if missing:
+        result.error = (f"{', '.join(missing)} is missing. Install the system packages:\n  {APT_LINE}")
         return result
     if find_spec("PySide6.QtWebEngineQuick") is None:
         result.warnings.append("QtWebEngine is missing. Skyhus starts, but the sign-in window does not work. "
@@ -240,7 +249,8 @@ def uninstall(home: Path | None = None, *, run: Run | None = None,
     """Remove the files that Skyhus wrote. Accounts and settings stay."""
     home = Path(home) if home is not None else Path.home()
     result = Result()
-    targets = [(script_path(home), MARKER), (desktop_path(home), DESKTOP_MARKER), (icon_path(home), MARKER)]
+    targets = [(script_path(home), MARKER), (desktop_path(home), DESKTOP_MARKER), (icon_path(home), MARKER),
+               (autostart_path(home), DESKTOP_MARKER)]
     for path, marker in targets:
         if not (path.exists() or path.is_symlink()):
             continue

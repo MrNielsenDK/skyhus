@@ -83,7 +83,7 @@ def test_main_chooses_the_decoration_before_it_makes_the_application():
     main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
 
     decoration = _call_lines(main, "use_gnome_title_bar")
-    application = _call_lines(main, "QGuiApplication")
+    application = _call_lines(main, "QApplication")
     assert decoration and application
     assert max(decoration) < min(application)
 

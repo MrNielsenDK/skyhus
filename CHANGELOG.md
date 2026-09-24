@@ -2,6 +2,17 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.0] - 2026-09-24
+
+### Added
+- Skyhus shows an icon in the system tray. A red or orange dot shows the total state of all accounts, and the tooltip shows the state of each account. The menu has "Open Skyhus", "Restart" or "Start" for each account, "Start Skyhus at login" and "Quit Skyhus". See `docs/features/0020-tray-icon.md`.
+- When the desktop has a tray, closing the window hides it, and Skyhus keeps running. While the window is hidden, Skyhus reads the state every 30 seconds. See `docs/features/0020-tray-icon.md`.
+- "Start Skyhus at login" writes `~/.config/autostart/skyhus.desktop` with `--background`. `python3 -m skyhus.install --uninstall` removes it. See `docs/features/0020-tray-icon.md`.
+- Skyhus runs only once for each user. A second start shows the window of the running Skyhus. See `docs/features/0020-tray-icon.md`.
+
+### Changed
+- Skyhus needs `python3-pyside6.qtwidgets` and `python3-pyside6.qtnetwork`. The install command checks them. See `docs/features/0020-tray-icon.md`.
+
 ## [0.13.0] - 2026-09-24
 
 ### Added

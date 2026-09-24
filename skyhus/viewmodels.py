@@ -27,7 +27,7 @@ from PySide6.QtCore import (
 from . import account_removal as removal_mod
 from . import activity as activity_mod
 from . import apply as apply_mod
-from . import service_control, sideeffects
+from . import service_control, settings, sideeffects
 from .accounts import Account, home_dir
 from .config import read_skip_dir_strict, read_skip_dirs, read_sync_root_files
 from .discovery import discover_accounts
@@ -64,6 +64,9 @@ POLL_INTERVAL_MS = 200
 SERVICE_STOPPED_NOTE = "The service is stopped while you sign in"
 PICKER_POLL_INTERVAL_MS = 100
 STATUS_INTERVAL_MS = 3000
+STATUS_INTERVAL_HIDDEN_MS = 30_000
+"""How often the application reads the state for the tray icon while the window is hidden (feature 0020)."""
+TRAY_HINT = "Skyhus keeps running in the tray. To quit, use Quit Skyhus in the tray menu."
 STATUS_POLL_INTERVAL_MS = 100
 CLOSE_POLL_INTERVAL_MS = 100
 ACTION_TEXTS = {"start": "Starting {}", "restart": "Restarting {}", "resync": "Restarting {} with --resync",
@@ -538,6 +541,13 @@ class AppController(QObject):
     cancelResyncChanged = Signal()
     removeChanged = Signal()
     activityChanged = Signal()
+    # The tray icon (feature 0020).
+    statusesChanged = Signal()
+    trayChanged = Signal()
+    showWindowRequested = Signal()
+    hideWindowRequested = Signal()
+    trayMessageRequested = Signal(str, str)
+    quitReady = Signal()
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
@@ -641,6 +651,10 @@ class AppController(QObject):
         self._activity_poll_timer = QTimer(self)
         self._activity_poll_timer.setInterval(ACTIVITY_POLL_INTERVAL_MS)
         self._activity_poll_timer.timeout.connect(self._poll_activity)
+        # The tray icon (feature 0020). app.py turns it on when the desktop has a tray.
+        self._tray_active = False
+        self._window_visible = False
+        self._quitting = False
         self.refresh()
 
     # Properties for QML
@@ -949,6 +963,19 @@ class AppController(QObject):
 
     activityLoading = Property(bool, _get_activity_loading, notify=activityChanged)
 
+    # The tray icon (feature 0020)
+
+    def _get_tray_active(self) -> bool:
+        return self._tray_active
+
+    trayActive = Property(bool, _get_tray_active, notify=trayChanged)
+    """The desktop has a tray. Closing the window hides it, and Skyhus keeps running."""
+
+    def tray_snapshot(self) -> tuple[list[Account], dict[str, AccountStatus]]:
+        """The accounts and their states for the tray icon."""
+        accounts = self._model.accounts()
+        return accounts, {str(a.confdir): self._model.status(str(a.confdir)) for a in accounts}
+
     # Close during work
 
     def _get_busy_text(self) -> str:
@@ -969,6 +996,7 @@ class AppController(QObject):
     def refresh(self) -> None:
         self._registry.load()
         self._model.set_accounts(discover_accounts(self._home, self._registry))
+        self.statusesChanged.emit()
 
     @Slot(str, result=str)
     def suggestSyncDir(self, name: str) -> str:
@@ -1133,16 +1161,64 @@ class AppController(QObject):
 
     @Slot(bool)
     def setWindowVisible(self, visible: bool) -> None:
-        """The timer runs while the window is visible and stops when it is minimized."""
-        if visible and not self._status_timer.isActive():
-            self._status_timer.start()
-            self._progress_timer.start()
-            self._activity_timer.start()
-            self.refreshStatus()
-        elif not visible:
+        """The timers run while the window is visible and stop when it is minimized or hidden.
+
+        With the tray icon, the state is read every 30 seconds also while the window is hidden (feature 0020).
+        """
+        self._window_visible = visible
+        if visible:
+            self._status_timer.setInterval(STATUS_INTERVAL_MS)
+            if not self._progress_timer.isActive():
+                self._status_timer.start()
+                self._progress_timer.start()
+                self._activity_timer.start()
+                self.refreshStatus()
+            return
+        self._progress_timer.stop()
+        self._activity_timer.stop()
+        if self._tray_active:
+            self._status_timer.setInterval(STATUS_INTERVAL_HIDDEN_MS)
+            if not self._status_timer.isActive():
+                self._status_timer.start()
+                self.refreshStatus()
+        else:
             self._status_timer.stop()
-            self._progress_timer.stop()
-            self._activity_timer.stop()
+
+    @Slot(bool)
+    def setTrayActive(self, active: bool) -> None:
+        if active != self._tray_active:
+            self._tray_active = active
+            self.trayChanged.emit()
+            self.setWindowVisible(self._window_visible)
+
+    @Slot()
+    def showWindow(self) -> None:
+        self.showWindowRequested.emit()
+
+    @Slot()
+    def toggleWindow(self) -> None:
+        """A click on the tray icon: show the window, or hide it when it is visible."""
+        if self._window_visible and self._tray_active:
+            self.hideWindowRequested.emit()
+        else:
+            self.showWindowRequested.emit()
+
+    @Slot(str)
+    def trayAction(self, confdir: str) -> None:
+        """An action item in the tray menu. "Restart with resync" opens the window with the confirmation."""
+        if self._model.status(confdir).state.action == "resync":
+            self.showWindowRequested.emit()
+        self.serviceAction(confdir)
+
+    @Slot()
+    def quit(self) -> None:
+        """"Quit Skyhus" in the tray menu. The rule from feature 0008 applies."""
+        self._quitting = True
+        if self._critical_jobs:
+            self.showWindowRequested.emit()
+            self.requestClose()
+            return
+        self._allow_close()
 
     @Slot()
     def refreshStatus(self) -> None:
@@ -1349,7 +1425,16 @@ class AppController(QObject):
 
     @Slot(result=bool)
     def requestClose(self) -> bool:
-        """Return true if the window can close. Otherwise wait for the actions and send ``closeReady``."""
+        """Return true if the window can close. Otherwise wait for the actions and send ``closeReady``.
+
+        With the tray icon, closing the window hides it, and Skyhus keeps running (feature 0020).
+        """
+        if self._tray_active and not self._quitting:
+            self.hideWindowRequested.emit()
+            if not settings.get_flag(settings.TRAY_HINT_SHOWN, self._home):
+                settings.set_flag(settings.TRAY_HINT_SHOWN, home=self._home)
+                self.trayMessageRequested.emit("Skyhus", TRAY_HINT)
+            return False
         if self._close_allowed or not self._critical_jobs:
             return True
         if not self._closing:
@@ -1386,6 +1471,8 @@ class AppController(QObject):
         self._close_timer.stop()
         self._close_allowed = True
         self.closeReady.emit()
+        if self._quitting:
+            self.quitReady.emit()
 
     def _read_current_activity(self) -> None:
         if self._activity_confdir:
@@ -1536,6 +1623,7 @@ class AppController(QObject):
                 log.error("Unexpected error when the application read the status", exc_info=job.error)
             else:
                 self._model.set_statuses(job.result)
+                self.statusesChanged.emit()
             if self._status_again:
                 self._status_again = False
                 self.refreshStatus()

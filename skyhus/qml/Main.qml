@@ -12,6 +12,8 @@ ApplicationWindow {
     required property var controller
     // Safe mode (feature 0007). app.py gives the value at start.
     property bool safeMode: false
+    // Start without a window, only with the tray icon (feature 0020).
+    property bool startHidden: false
 
     readonly property var loginActiveStates: ["starting", "waiting_for_user", "waiting_for_token", "activating",
                                               "cancelling"]
@@ -21,7 +23,7 @@ ApplicationWindow {
     height: Theme.windowHeight
     minimumWidth: Theme.windowMinWidth
     minimumHeight: Theme.windowMinHeight
-    visible: true
+    visible: !startHidden
     title: "Skyhus"
     color: Theme.windowBg
     font: Theme.body
@@ -388,6 +390,16 @@ ApplicationWindow {
         // Feature 0008: the actions are done, or the user clicked "Close anyway".
         function onCloseReady() {
             window.close()
+        }
+        // The tray icon shows and hides the window (feature 0020).
+        function onShowWindowRequested() {
+            if (window.visibility === Window.Minimized || window.visibility === Window.Hidden)
+                window.showNormal()
+            window.raise()
+            window.requestActivate()
+        }
+        function onHideWindowRequested() {
+            window.hide()
         }
     }
 

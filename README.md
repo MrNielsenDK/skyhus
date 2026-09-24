@@ -15,6 +15,7 @@ Skyhus can:
 - show the state of the service for each account and start or restart it,
 - show the progress during upload, move to Trash and `--resync`,
 - show the activity and the problems of the last 24 hours for each account,
+- show the total state in the system tray and keep running when the window is closed,
 - remove an account.
 
 ## Add an account
@@ -94,6 +95,26 @@ After a click, Skyhus waits for up to 120 seconds until the service runs or fail
 If the service does not become stable, the card shows "The service does not respond.".
 If `systemctl` cannot do the action, the card shows the message from `systemctl`.
 
+## System tray
+
+When the desktop has a system tray, Skyhus shows an icon there. The icon has a dot:
+
+- red when an account is "Failed" or "Needs resync",
+- orange when an account is starting, stopping or resyncing,
+- no dot when all is well.
+
+The tooltip shows the state of each account. A click on the icon shows or hides the window.
+The menu has "Open Skyhus", 1 line per account with "Restart" or "Start", "Start Skyhus at login" and "Quit Skyhus".
+"Restart … with resync …" opens the window with the confirmation. The tray never starts a resync by itself.
+
+When you close the window, Skyhus keeps running in the tray. To quit, use "Quit Skyhus" in the menu.
+While the window is hidden, Skyhus reads the state every 30 seconds. It does not read the journal.
+
+"Start Skyhus at login" writes `~/.config/autostart/skyhus.desktop`, which starts Skyhus with `--background` (only the tray icon). It needs `python3 -m skyhus.install` first.
+Skyhus runs only once. If you start it again, the running Skyhus shows its window.
+
+On GNOME, the tray needs the extension "AppIndicator and KStatusNotifierItem Support". Ubuntu has it by default. Without a tray, closing the window quits Skyhus.
+
 ## Activity
 
 The card "Activity" on each account shows the last 24 hours from the journal of the service:
@@ -151,7 +172,8 @@ Skyhus uses the system packages from Ubuntu/Debian:
 
 ```bash
 sudo apt install onedrive python3-pyside6.qtquick python3-pyside6.qtquickcontrols2 \
-    python3-pyside6.qtwebenginequick python3-pyside6.qtsvg python3-pytest
+    python3-pyside6.qtwebenginequick python3-pyside6.qtsvg python3-pyside6.qtwidgets \
+    python3-pyside6.qtnetwork python3-pytest
 ```
 
 The sign-in window needs `python3-pyside6.qtwebenginequick`.
