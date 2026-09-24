@@ -16,10 +16,19 @@ ADWAITA = "adwaita"
 ADWAITA_PLUGIN = Path("wayland-decoration-client") / "libadwaita.so"
 
 
+def _desktops(environ: Mapping[str, str]) -> set[str]:
+    """``XDG_CURRENT_DESKTOP`` can be a list such as ``ubuntu:GNOME``."""
+    return {d.strip().casefold() for d in environ.get("XDG_CURRENT_DESKTOP", "").split(":")}
+
+
+def is_kde(environ: Mapping[str, str]) -> bool:
+    """Is the session KDE Plasma? (feature 0017)"""
+    return "kde" in _desktops(environ)
+
+
 def is_gnome_wayland(environ: Mapping[str, str]) -> bool:
-    """Is the session GNOME on Wayland? ``XDG_CURRENT_DESKTOP`` can be a list such as ``ubuntu:GNOME``."""
-    desktops = {d.strip().casefold() for d in environ.get("XDG_CURRENT_DESKTOP", "").split(":")}
-    return "gnome" in desktops and bool(environ.get("WAYLAND_DISPLAY"))
+    """Is the session GNOME on Wayland?"""
+    return "gnome" in _desktops(environ) and bool(environ.get("WAYLAND_DISPLAY"))
 
 
 def wayland_decoration(environ: Mapping[str, str], plugin_dir: Path | str | None) -> str | None:

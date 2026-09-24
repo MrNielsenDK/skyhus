@@ -37,8 +37,9 @@ def paths(home):
     }
 
 
-def do_install(home, run=None, find_spec=found):
-    return install.install(home, ROOT, python=PYTHON, run=run or RecordingRun(), find_spec=find_spec)
+def do_install(home, run=None, find_spec=found, environ=None):
+    return install.install(home, ROOT, python=PYTHON, run=run or RecordingRun(), find_spec=find_spec,
+                           environ={} if environ is None else environ)
 
 
 # Installation
@@ -409,5 +410,75 @@ def test_safe_mode_does_not_update_the_icon_cache(home, monkeypatch):
     assert sideeffects.safe_mode()
 
     install.install(home, ROOT, python=PYTHON, find_spec=found)
+
+    assert called == []
+
+
+# Reload icons on KDE (feature 0017)
+
+KDE = {"XDG_CURRENT_DESKTOP": "KDE"}
+GNOME = {"XDG_CURRENT_DESKTOP": "GNOME"}
+ICON_SIGNAL = ["dbus-send", "--session", "--type=signal", "/KIconLoader",
+               "org.kde.KIconLoader.iconChanged", "int32:0"]
+
+
+def test_install_on_kde_sends_the_icon_signal_last(home):
+    run = RecordingRun()
+
+    do_install(home, run=run, environ=KDE)
+
+    names = [c[0] for c in run.calls]
+    assert run.calls[-1] == ICON_SIGNAL
+    assert names.index("dbus-send") > names.index("update-desktop-database")
+    assert names.index("dbus-send") > names.index("kbuildsycoca6")
+
+
+def test_install_on_gnome_sends_no_signal(home):
+    run = RecordingRun()
+
+    do_install(home, run=run, environ=GNOME)
+
+    assert not any(c[0] == "dbus-send" for c in run.calls)
+
+
+def test_missing_dbus_send_gives_no_warning(home):
+    def run(args, **kwargs):
+        if args[0] == "dbus-send":
+            raise FileNotFoundError(args[0])
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    result = do_install(home, run=run, environ=KDE)
+
+    assert result.warnings == []
+
+
+def test_failing_dbus_send_gives_the_logout_warning(home):
+    def run(args, **kwargs):
+        code = 1 if args[0] == "dbus-send" else 0
+        return subprocess.CompletedProcess(args, code, stdout="", stderr="no session bus")
+
+    result = do_install(home, run=run, environ=KDE)
+
+    assert result.error == ""
+    assert any("log out and log in again" in w for w in result.warnings)
+
+
+def test_uninstall_on_kde_sends_the_icon_signal(home):
+    do_install(home)
+    run = RecordingRun()
+
+    install.uninstall(home, run=run, environ=KDE)
+
+    assert ICON_SIGNAL in run.calls
+
+
+def test_safe_mode_sends_no_icon_signal(home, monkeypatch):
+    import subprocess as sp
+    from skyhus import sideeffects
+    called = []
+    monkeypatch.setattr(sp, "run", lambda *a, **k: called.append(a))
+    assert sideeffects.safe_mode()
+
+    install.install(home, ROOT, python=PYTHON, find_spec=found, environ=KDE)
 
     assert called == []

@@ -2,6 +2,11 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.11.2] - 2026-09-24
+
+### Fixed
+- On KDE, the program menu shows the Skyhus icon right after the install, without a logout. The install and uninstall commands send the KDE signal `org.kde.KIconLoader.iconChanged`, so Plasma looks for the icon again. See `docs/features/0017-kde-icon-reload.md`.
+
 ## [0.11.1] - 2026-09-24
 
 ### Fixed

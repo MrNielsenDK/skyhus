@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from skyhus.desktop import is_gnome_wayland, wayland_decoration
+from skyhus.desktop import is_gnome_wayland, is_kde, wayland_decoration
 
 ROOT = Path(__file__).resolve().parent.parent
 GNOME_WAYLAND = {"XDG_CURRENT_DESKTOP": "GNOME", "WAYLAND_DISPLAY": "wayland-0"}
@@ -51,6 +51,14 @@ def test_user_value_wins(plugin_dir):
 def test_missing_plugin_gives_none(tmp_path):
     assert wayland_decoration(GNOME_WAYLAND, tmp_path) is None
     assert wayland_decoration(GNOME_WAYLAND, None) is None
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("KDE", True), ("ubuntu:KDE", True), ("kde", True), ("GNOME", False), ("", False),
+])
+def test_is_kde(value, expected):
+    assert is_kde({"XDG_CURRENT_DESKTOP": value}) is expected
+    assert is_kde({}) is False
 
 
 def test_is_gnome_wayland():

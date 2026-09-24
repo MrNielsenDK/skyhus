@@ -19,9 +19,9 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
-from . import sideeffects
+from . import desktop, sideeffects
 
 log = logging.getLogger(__name__)
 
@@ -176,10 +176,33 @@ def _refresh_menu(home: Path, run: Run | None) -> list[str]:
     return warnings
 
 
+KDE_ICON_SIGNAL = ["dbus-send", "--session", "--type=signal", "/KIconLoader",
+                   "org.kde.KIconLoader.iconChanged", "int32:0"]
+
+
+def _reload_kde_icons(environ: Mapping[str, str], run: Run | None) -> list[str]:
+    """Ask KDE to look for icons again (feature 0017).
+
+    Plasma remembers an icon that it did not find, until it restarts. KDE sends
+    the same signal when the user changes the icon theme. Other desktops do not
+    listen to it.
+    """
+    if not desktop.is_kde(environ):
+        return []
+    found, warning = _run_tool(KDE_ICON_SIGNAL, run or sideeffects.run)
+    if found and warning:
+        log.warning("%s", warning)
+        return ["KDE did not get the message to reload icons. "
+                "If the menu shows no icon for Skyhus, log out and log in again."]
+    return []
+
+
 def install(home: Path | None = None, repo: Path = REPO_DIR, *, python: str | None = None,
-            run: Run | None = None, find_spec: FindSpec | None = None) -> Result:
+            run: Run | None = None, find_spec: FindSpec | None = None,
+            environ: Mapping[str, str] | None = None) -> Result:
     """Write the 3 files. Stop before the first write if something is wrong."""
     home = Path(home) if home is not None else Path.home()
+    environ = os.environ if environ is None else environ
     python = python or sys.executable
     find_spec = find_spec or importlib.util.find_spec
     result = Result()
@@ -208,10 +231,12 @@ def install(home: Path | None = None, repo: Path = REPO_DIR, *, python: str | No
 
     result.warnings += _refresh_icon_cache(home, run)
     result.warnings += _refresh_menu(home, run)
+    result.warnings += _reload_kde_icons(environ, run)
     return result
 
 
-def uninstall(home: Path | None = None, *, run: Run | None = None) -> Result:
+def uninstall(home: Path | None = None, *, run: Run | None = None,
+              environ: Mapping[str, str] | None = None) -> Result:
     """Remove the files that Skyhus wrote. Accounts and settings stay."""
     home = Path(home) if home is not None else Path.home()
     result = Result()
@@ -230,6 +255,8 @@ def uninstall(home: Path | None = None, *, run: Run | None = None) -> Result:
         result.warnings += _refresh_icon_cache(home, run)
     if result.removed:
         result.warnings += _refresh_menu(home, run)
+    if icon_path(home) in result.removed:
+        result.warnings += _reload_kde_icons(os.environ if environ is None else environ, run)
     return result
 
 
