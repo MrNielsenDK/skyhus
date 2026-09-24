@@ -129,22 +129,50 @@ def _foreign(path: Path, marker: str) -> bool:
     return (path.exists() or path.is_symlink()) and not _is_ours(path, marker)
 
 
+def _run_tool(cmd: list[str], run: Run) -> tuple[bool, str]:
+    """Run a desktop tool. Returns (found, warning). An error gives only a warning."""
+    try:
+        result = run(cmd, capture_output=True, text=True, timeout=60)
+    except FileNotFoundError:
+        log.info("%s does not exist. Skipping it.", cmd[0])
+        return False, ""
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return True, f"{cmd[0]} failed: {exc}"
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "").strip()
+        return True, f"{cmd[0]} failed with exit code {result.returncode}. {message}".strip()
+    return True, ""
+
+
+def icon_cache_path(home: Path) -> Path:
+    return home / ".local" / "share" / "icons" / "hicolor" / "icon-theme.cache"
+
+
+def _refresh_icon_cache(home: Path, run: Run | None) -> list[str]:
+    """Update the GTK icon cache, if one exists (feature 0016).
+
+    Qt uses the cache when it exists and does not look in the folder. A cache
+    without the Skyhus icon hides the icon in the program menu. The function
+    does not make a cache that does not exist.
+    """
+    cache = icon_cache_path(home)
+    if not cache.is_file():
+        return []
+    found, warning = _run_tool(["gtk-update-icon-cache", "-f", "-t", str(cache.parent)], run or sideeffects.run)
+    if not found:
+        return [f"The icon cache {cache} does not contain the Skyhus icon, and gtk-update-icon-cache is missing. "
+                "Install the package that contains gtk-update-icon-cache and run the install again."]
+    return [warning] if warning else []
+
+
 def _refresh_menu(home: Path, run: Run | None) -> list[str]:
     """Ask the desktop to read the program menu again. An error gives only a warning."""
     run = run or sideeffects.run
     warnings = []
     for cmd in (["update-desktop-database", str(desktop_path(home).parent)], ["kbuildsycoca6"]):
-        try:
-            result = run(cmd, capture_output=True, text=True, timeout=60)
-        except FileNotFoundError:
-            log.info("%s does not exist. Skipping it.", cmd[0])
-            continue
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            warnings.append(f"{cmd[0]} failed: {exc}")
-            continue
-        if result.returncode != 0:
-            message = (result.stderr or result.stdout or "").strip()
-            warnings.append(f"{cmd[0]} failed with exit code {result.returncode}. {message}".strip())
+        _, warning = _run_tool(cmd, run)
+        if warning:
+            warnings.append(warning)
     return warnings
 
 
@@ -178,6 +206,7 @@ def install(home: Path | None = None, repo: Path = REPO_DIR, *, python: str | No
         os.chmod(f.path, f.mode)
         result.written.append(f.path)
 
+    result.warnings += _refresh_icon_cache(home, run)
     result.warnings += _refresh_menu(home, run)
     return result
 
@@ -197,6 +226,8 @@ def uninstall(home: Path | None = None, *, run: Run | None = None) -> Result:
             continue
         path.unlink()
         result.removed.append(path)
+    if icon_path(home) in result.removed:
+        result.warnings += _refresh_icon_cache(home, run)
     if result.removed:
         result.warnings += _refresh_menu(home, run)
     return result

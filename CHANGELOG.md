@@ -2,6 +2,11 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.11.1] - 2026-09-24
+
+### Fixed
+- The program menu shows the Skyhus icon also when `~/.local/share/icons/hicolor/` has a GTK icon cache from a different program. The install command updates the cache after it writes the icon, and the uninstall command updates it after it removes the icon. See `docs/features/0016-icon-cache.md`.
+
 ## [0.11.0] - 2026-09-23
 
 ### Added

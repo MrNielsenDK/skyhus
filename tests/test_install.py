@@ -328,3 +328,86 @@ def test_missing_kbuildsycoca6_gives_no_warning(home):
 
     assert result.error == ""
     assert result.warnings == []
+
+
+# Icon cache (feature 0016)
+
+def icon_cache(home):
+    return home / ".local" / "share" / "icons" / "hicolor" / "icon-theme.cache"
+
+
+def make_icon_cache(home):
+    cache = icon_cache(home)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(b"old cache")
+    return cache
+
+
+def test_install_updates_an_existing_icon_cache_first(home):
+    make_icon_cache(home)
+    run = RecordingRun()
+
+    do_install(home, run=run)
+
+    hicolor = str(icon_cache(home).parent)
+    assert run.calls[0] == ["gtk-update-icon-cache", "-f", "-t", hicolor]
+    assert run.calls[1][0] == "update-desktop-database"
+
+
+def test_install_without_icon_cache_does_not_make_one(home):
+    run = RecordingRun()
+
+    do_install(home, run=run)
+
+    assert not any(c[0] == "gtk-update-icon-cache" for c in run.calls)
+
+
+def test_missing_gtk_update_icon_cache_gives_a_warning(home):
+    make_icon_cache(home)
+
+    def run(args, **kwargs):
+        if args[0] == "gtk-update-icon-cache":
+            raise FileNotFoundError(args[0])
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    result = do_install(home, run=run)
+
+    assert result.error == ""
+    assert any("gtk-update-icon-cache is missing" in w and str(icon_cache(home)) in w for w in result.warnings)
+    assert all(path.exists() for path in paths(home).values())
+
+
+def test_failing_gtk_update_icon_cache_gives_a_warning(home):
+    make_icon_cache(home)
+
+    def run(args, **kwargs):
+        code = 1 if args[0] == "gtk-update-icon-cache" else 0
+        return subprocess.CompletedProcess(args, code, stdout="", stderr="bad cache")
+
+    result = do_install(home, run=run)
+
+    assert result.error == ""
+    assert any("gtk-update-icon-cache" in w and "exit code 1" in w for w in result.warnings)
+
+
+def test_uninstall_updates_an_existing_icon_cache(home):
+    do_install(home)
+    make_icon_cache(home)
+    run = RecordingRun()
+
+    install.uninstall(home, run=run)
+
+    assert ["gtk-update-icon-cache", "-f", "-t", str(icon_cache(home).parent)] in run.calls
+
+
+def test_safe_mode_does_not_update_the_icon_cache(home, monkeypatch):
+    import subprocess as sp
+    from skyhus import sideeffects
+    make_icon_cache(home)
+    called = []
+    monkeypatch.setattr(sp, "run", lambda *a, **k: called.append(a))
+    assert sideeffects.safe_mode()
+
+    install.install(home, ROOT, python=PYTHON, find_spec=found)
+
+    assert called == []
