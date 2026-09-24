@@ -110,5 +110,14 @@ def enable_now(service: str, run: Callable[..., subprocess.CompletedProcess] | N
     systemctl("enable", "--now", service, run=run)
 
 
+def disable_now(unit: str, run: Callable[..., subprocess.CompletedProcess] | None = None) -> None:
+    """Stop the unit and disable it (feature 0018)."""
+    systemctl("disable", "--now", unit, run=run)
+
+
+def daemon_reload(run: Callable[..., subprocess.CompletedProcess] | None = None) -> None:
+    systemctl("daemon-reload", run=run)
+
+
 def restart(service: str, run: Callable[..., subprocess.CompletedProcess] | None = None) -> None:
     systemctl("restart", service, run=run)

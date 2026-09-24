@@ -158,6 +158,26 @@ Item {
                     value: page.service !== "" ? page.service : "None"
                 }
             }
+
+            // Remove the account (feature 0018).
+            UI.Card {
+                title: "Remove"
+
+                UI.Row {
+                    first: true
+                    text: "Remove account"
+                    detail: "Disable the service and move the account's folders to the Trash. The files on OneDrive stay."
+
+                    UI.SecondaryButton {
+                        objectName: "removeAccountButton"
+                        destructive: true
+                        text: "Remove account …"
+                        enabled: page.controller.loginState === "idle" && page.controller.pickerState === "closed"
+                                 && page.controller.removeState === "" && !page.serviceBusy
+                        onClicked: page.controller.requestRemoveAccount(page.confdir)
+                    }
+                }
+            }
         }
     }
 

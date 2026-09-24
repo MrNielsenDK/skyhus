@@ -13,7 +13,8 @@ Skyhus can:
 - sign in an existing account again with `--reauth`,
 - choose which folders on OneDrive each account syncs,
 - show the state of the service for each account and start or restart it,
-- show the progress during upload, move to Trash and `--resync`.
+- show the progress during upload, move to Trash and `--resync`,
+- remove an account.
 
 ## Add an account
 
@@ -91,6 +92,30 @@ If you close Skyhus and open it again, Skyhus reads the full journal for the cur
 After a click, Skyhus waits for up to 120 seconds until the service runs or fails.
 If the service does not become stable, the card shows "The service does not respond.".
 If `systemctl` cannot do the action, the card shows the message from `systemctl`.
+
+## Remove an account
+
+Click "Remove account …" at the bottom of the account page. The sheet "Remove account?" shows what Skyhus removes and what it keeps.
+
+The check box "Also move the local folder to the Trash" is on by default. Turn it off to keep a local copy of the files.
+When the check box is on, Skyhus first uploads the local changes to OneDrive. The sheet shows the files that are only on this computer, because the rules keep them out of the sync. These files go to the Trash with the folder.
+
+Skyhus does these steps in this order:
+
+1. Disable the units that start the service, for example a `.path` unit.
+2. Stop and disable the service.
+3. Upload the local changes (only when the check box is on). You can click "Stop". Then Skyhus enables the service again, and nothing changes.
+4. Remove the unit files that Skyhus wrote.
+5. Delete the sign-in token `refresh_token` permanently.
+6. Move the config folder to the Trash.
+7. Move the sync folder to the Trash (only when the check box is on).
+8. Remove the account from `~/.config/skyhus/`.
+
+Skyhus does not delete files on OneDrive. It does not delete unit files, `.path` units or drop-ins that it did not write. It only disables them.
+If step 1, 2 or 3 fails, Skyhus enables the service again, and nothing else changes.
+The sync folder stays if it is your home folder, is outside your home folder, is inside `~/.config`, or overlaps with the folders of a different account.
+
+Microsoft still lists the OneDrive client as an app with access to the account. You can remove this access in the settings of your Microsoft account.
 
 ## Supported desktops
 

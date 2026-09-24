@@ -2,6 +2,12 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.12.0] - 2026-09-24
+
+### Added
+- The account page has the button "Remove account …". The sheet "Remove account?" shows what Skyhus removes and keeps. Skyhus disables the units that start the service, stops and disables the service, removes only the unit files that it wrote, deletes the sign-in token, and moves the config folder to the Trash. See `docs/features/0018-remove-account.md`.
+- The check box "Also move the local folder to the Trash" is on by default. Skyhus then uploads the local changes first and shows the files that are only on this computer. If the upload fails or the user clicks "Stop", Skyhus enables the service again and changes nothing. See `docs/features/0018-remove-account.md`.
+
 ## [0.11.2] - 2026-09-24
 
 ### Fixed

@@ -100,5 +100,11 @@ class Registry:
         self.save()
 
 
+    def remove(self, confdir: Path) -> None:
+        """Remove the account from the registry (feature 0018). Does nothing if there is no entry."""
+        if self._entries.pop(_key(confdir), None) is not None:
+            self.save()
+
+
 def _key(confdir: Path | str) -> str:
     return os.path.normpath(os.path.expanduser(str(confdir)))

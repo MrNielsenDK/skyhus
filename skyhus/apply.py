@@ -166,12 +166,23 @@ def _describe_processes(processes) -> str:
     return "\n".join(lines)
 
 
+def _config_rules(confdir: Path) -> dict:
+    return dict(skip_dirs=read_skip_dirs(confdir), skip_dir_strict=read_skip_dir_strict(confdir),
+                skip_files=read_skip_files(confdir), skip_dotfiles=read_skip_dotfiles(confdir))
+
+
+def current_rule_set(confdir: Path) -> RuleSet:
+    """The rules that the client uses now. A rule that cannot be interpreted gives ``UnknownRuleError``."""
+    current = read_sync_list(confdir)
+    return RuleSet(current.folders if current.exists else None, read_sync_root_files(confdir),
+                   current.unknown, **_config_rules(confdir))
+
+
 def _rule_sets(account: Account, current, *, sync_all: bool, folders: list[str],
                root_files: bool) -> tuple[RuleSet, RuleSet]:
     """The old and the new rules. A rule that cannot be interpreted gives ``ApplyError``."""
     confdir = account.confdir
-    config = dict(skip_dirs=read_skip_dirs(confdir), skip_dir_strict=read_skip_dir_strict(confdir),
-                  skip_files=read_skip_files(confdir), skip_dotfiles=read_skip_dotfiles(confdir))
+    config = _config_rules(confdir)
     try:
         old = RuleSet(current.folders if current.exists else None, read_sync_root_files(confdir),
                       current.unknown, **config)
@@ -218,10 +229,10 @@ class Upload:
     ``cancel`` flag, ``run()`` checks for "Stop" at each line and each second.
     """
 
-    def __init__(self, change: Change, popen: Popen, on_progress: Callable[[SyncProgress], None], *,
+    def __init__(self, confdir: Path, popen: Popen, on_progress: Callable[[SyncProgress], None], *,
                  cancel: CancelFlag | None = None, send_signal: SendSignal | None = None,
                  clock: Callable[[], float] | None = None, sleep: Callable[[float], None] | None = None):
-        self.command = upload_command(change.account.confdir)
+        self.command = upload_command(confdir)
         self.progress = SyncProgress()
         self.process = None
         self._popen = popen
@@ -308,7 +319,7 @@ def _report(on_step: OnStep | None, step: int, state: str, progress: SyncProgres
         on_step(step, state, progress.snapshot() if progress is not None else None)
 
 
-def _upload(upload: Upload, cancel: CancelFlag | None) -> bool:
+def run_upload(upload: Upload, cancel: CancelFlag | None) -> bool:
     """Run the upload. True if the user stopped it. A stopped upload is not an error."""
     if cancel is None:
         upload.run()
@@ -363,10 +374,10 @@ def execute(change: Change, *, home: Path | None = None, run: Run | None = None,
                              + _describe_processes(remaining))
         _report(on_step, STOP, DONE)
         step = UPLOAD
-        upload = Upload(change, popen, lambda progress: _report(on_step, UPLOAD, RUNNING, progress),
+        upload = Upload(change.account.confdir, popen, lambda progress: _report(on_step, UPLOAD, RUNNING, progress),
                         cancel=cancel, send_signal=send_signal, clock=clock, sleep=sleep)
         _report(on_step, UPLOAD, RUNNING, upload.progress)
-        if _upload(upload, cancel):
+        if run_upload(upload, cancel):
             log.info("The user stopped the upload. The folder selection did not change.")
             _report(on_step, UPLOAD, CANCELLED, upload.progress)
             if service_active:

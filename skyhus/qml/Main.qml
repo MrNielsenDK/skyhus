@@ -261,6 +261,10 @@ ApplicationWindow {
         controller: window.controller
     }
 
+    RemoveAccountSheet {
+        controller: window.controller
+    }
+
     ClosingSheet {
         controller: window.controller
     }

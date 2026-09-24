@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from . import account_removal as removal_mod
 from . import apply as apply_mod
 from . import service_control, sideeffects
 from .accounts import Account, home_dir
@@ -103,6 +104,32 @@ def progress_data(status: AccountStatus, now: float) -> dict:
         "result": progress.result,
         "resultText": status.progress_text,
         "resultDetail": detail,
+    }
+
+
+REMOVE_POLL_INTERVAL_MS = 100
+LOCAL_ONLY_SHOWN = 10
+"""The number of paths that the sheet "Remove account?" shows of the files that are only local (feature 0018)."""
+
+
+def removal_step_data(step: int, state: str, progress: SyncProgress | None) -> dict:
+    """1 step in the sheet "Remove account?" as a map for QML (feature 0018)."""
+    detail = latest = ""
+    determinate, value = False, 0.0
+    if progress is not None and state != removal_mod.WAITING:
+        detail = count_text(progress.done, progress.total)
+        latest = progress.latest
+        determinate, value = progress.determinate, progress.fraction
+    return {
+        "step": step,
+        "title": removal_mod.STEPS[step],
+        "state": state,
+        "stateText": STEP_STATE_TEXTS[state],
+        "detail": detail,
+        "latest": latest,
+        "showBar": state == removal_mod.RUNNING and step == removal_mod.UPLOAD,
+        "determinate": determinate,
+        "value": value,
     }
 
 
@@ -487,6 +514,7 @@ class AppController(QObject):
     """The window can close now (feature 0008). QML calls ``close()`` again."""
     applyChanged = Signal()
     cancelResyncChanged = Signal()
+    removeChanged = Signal()
 
     def __init__(self, home: Path | None = None, parent: QObject | None = None, *,
                  popen=None, run=None, opener=None, trash=None, proc_root: Path = PROC_ROOT,
@@ -560,6 +588,21 @@ class AppController(QObject):
         self._close_timer = QTimer(self)
         self._close_timer.setInterval(CLOSE_POLL_INTERVAL_MS)
         self._close_timer.timeout.connect(self._poll_close)
+        # Remove an account (feature 0018). The _Job thread writes the steps under the lock.
+        self._remove_state = ""
+        self._remove_error = ""
+        self._remove_plan: removal_mod.RemovalPlan | None = None
+        self._remove_sync_folder = True
+        self._remove_job: _Job | None = None
+        self._remove_lock = threading.Lock()
+        self._remove_steps: dict[int, tuple[str, SyncProgress | None]] = {}
+        self._remove_version = 0
+        self._remove_seen = 0
+        self._remove_cancel: apply_mod.CancelFlag | None = None
+        self._remove_cancelling = False
+        self._remove_timer = QTimer(self)
+        self._remove_timer.setInterval(REMOVE_POLL_INTERVAL_MS)
+        self._remove_timer.timeout.connect(self._poll_remove)
         self.refresh()
 
     # Properties for QML
@@ -690,6 +733,116 @@ class AppController(QObject):
 
     applySteps = Property("QVariantList", _get_apply_steps, notify=applyChanged)
     """The 5 steps with title, state, count and latest file."""
+
+    # The sheet "Remove account?" (feature 0018)
+
+    def _get_remove_state(self) -> str:
+        return self._remove_state
+
+    removeState = Property(str, _get_remove_state, notify=removeChanged)
+    """Empty, ``loading``, ``confirm``, ``running``, ``failed`` or ``cancelled``. The sheet is visible when not empty."""
+
+    def _get_remove_error(self) -> str:
+        return self._remove_error
+
+    removeError = Property(str, _get_remove_error, notify=removeChanged)
+
+    def _get_remove_sync_folder(self) -> bool:
+        return self._remove_sync_folder
+
+    removeSyncFolder = Property(bool, _get_remove_sync_folder, notify=removeChanged)
+    """The check box "Also move the local folder to the Trash". It is on by default."""
+
+    def _get_remove_plan(self) -> dict:
+        plan = self._remove_plan
+        if plan is None:
+            return {}
+        with_sync = self._remove_sync_folder and plan.sync_trashable
+        return {
+            "name": plan.account.name,
+            "confdir": str(plan.account.confdir),
+            "syncPath": str(plan.sync_path),
+            "syncTrashable": plan.sync_trashable,
+            "syncReason": plan.sync_reason,
+            "localOnlyText": self._local_only_text(plan),
+            "localOnlyPaths": self._local_only_paths(plan),
+            "removes": self._remove_lines(plan, with_sync),
+            "keeps": self._keep_lines(plan, with_sync),
+        }
+
+    removePlan = Property("QVariantMap", _get_remove_plan, notify=removeChanged)
+
+    def _get_remove_steps(self) -> list:
+        with self._remove_lock:
+            steps = dict(self._remove_steps)
+        return [removal_step_data(step, *steps[step]) for step in removal_mod.STEPS if step in steps]
+
+    removeSteps = Property("QVariantList", _get_remove_steps, notify=removeChanged)
+
+    def _get_remove_cancellable(self) -> bool:
+        if self._remove_state != "running" or self._remove_cancel is None or self._remove_cancelling:
+            return False
+        with self._remove_lock:
+            upload = self._remove_steps.get(removal_mod.UPLOAD)
+        return upload is not None and upload[0] == removal_mod.RUNNING
+
+    removeCancellable = Property(bool, _get_remove_cancellable, notify=removeChanged)
+    """The "Stop" button is visible. This applies only while the upload runs."""
+
+    def _get_remove_cancelling(self) -> bool:
+        return self._remove_cancelling
+
+    removeCancelling = Property(bool, _get_remove_cancelling, notify=removeChanged)
+
+    @staticmethod
+    def _local_only_text(plan: removal_mod.RemovalPlan) -> str:
+        local = plan.local_only
+        if local is None or local.files == 0:
+            return ""
+        noun = "file is" if local.files == 1 else "files are"
+        return f"{local.files} {noun} only on this computer ({format_size(local.size)})"
+
+    @staticmethod
+    def _local_only_paths(plan: removal_mod.RemovalPlan) -> list:
+        local = plan.local_only
+        if local is None:
+            return []
+        paths = []
+        for item in local.paths[:LOCAL_ONLY_SHOWN]:
+            try:
+                rel = str(Path(item.path).relative_to(plan.sync_path))
+            except ValueError:
+                rel = str(item.path)
+            paths.append(rel + ("/" if item.is_dir else ""))
+        more = len(local.paths) - LOCAL_ONLY_SHOWN
+        if more > 0:
+            paths.append(f"and {more} more")
+        return paths
+
+    @staticmethod
+    def _remove_lines(plan: removal_mod.RemovalPlan, with_sync: bool) -> list:
+        lines = []
+        if plan.service:
+            if any(p.name == plan.service for p in plan.unit_files):
+                lines.append(f"The service {plan.service}: stopped, disabled and its unit file removed")
+            else:
+                lines.append(f"The service {plan.service}: stopped and disabled. Its unit file stays.")
+        for unit in plan.triggers:
+            lines.append(f"{unit}: disabled. Its unit file stays.")
+        for path in plan.unit_files:
+            if path.name != plan.service:
+                lines.append(f"The file {path}")
+        lines.append(f"The config folder {plan.account.confdir}: to Trash. The sign-in token is deleted.")
+        if with_sync:
+            lines.append(f"The sync folder {plan.sync_path}: to Trash, after an upload of the local changes")
+        return lines
+
+    @staticmethod
+    def _keep_lines(plan: removal_mod.RemovalPlan, with_sync: bool) -> list:
+        lines = ["The files on OneDrive"]
+        if not with_sync:
+            lines.append(f"The sync folder {plan.sync_path}")
+        return lines
 
     # Close during work
 
@@ -982,6 +1135,74 @@ class AppController(QObject):
             self._cancel_resync_confdir = ""
             self.cancelResyncChanged.emit()
 
+    @Slot(str)
+    def requestRemoveAccount(self, confdir: str) -> None:
+        """The button "Remove account …". Finds what belongs to the account in a thread (feature 0018)."""
+        if (self._remove_state or self._login_state != "idle" or self._picker_state != "closed"
+                or self._model.is_busy(confdir) or self._resync_confdir or self._cancel_resync_confdir):
+            return
+        account = self._find_account(confdir)
+        if account is None:
+            return
+        self._remove_plan = None
+        self._remove_error = ""
+        self._remove_sync_folder = True
+        with self._remove_lock:
+            self._remove_steps = {}
+            self._remove_version += 1
+        self._set_remove_state("loading")
+        self._remove_job = _Job("prepare", removal_mod.prepare, account, self._model.accounts(),
+                                home=self._home, run=self._run)
+        self._remove_timer.start()
+
+    @Slot(bool)
+    def setRemoveSyncFolder(self, value: bool) -> None:
+        if self._remove_state == "confirm" and value != self._remove_sync_folder:
+            self._remove_sync_folder = value
+            self.removeChanged.emit()
+
+    @Slot()
+    def confirmRemoveAccount(self) -> None:
+        plan = self._remove_plan
+        if self._remove_state != "confirm" or plan is None:
+            return
+        confdir = str(plan.account.confdir)
+        if self._model.is_busy(confdir):
+            return
+        with_sync = self._remove_sync_folder and plan.sync_trashable
+        with self._remove_lock:
+            self._remove_steps = {step: (removal_mod.WAITING, None) for step in plan.steps(with_sync)}
+            self._remove_version += 1
+        self._remove_cancel = apply_mod.CancelFlag() if with_sync else None
+        self._remove_cancelling = False
+        self._model.set_busy(confdir, True)
+        self._set_remove_state("running")
+        self._remove_job = _Job("execute", removal_mod.execute, plan, remove_sync_folder=with_sync,
+                                home=self._home, run=self._run, popen=self._popen, trash=self._trash,
+                                send_signal=self._send_signal, proc_root=self._proc_root,
+                                clock=self._clock, sleep=self._sleep, on_step=self._on_remove_step,
+                                cancel=self._remove_cancel)
+        self._begin_critical(self._remove_job, f"Removing the account {plan.account.name}")
+        self._remove_timer.start()
+
+    @Slot()
+    def stopRemoveAccount(self) -> None:
+        """The "Stop" button during the upload. The removal is undone."""
+        flag = self._remove_cancel
+        if flag is None or self._remove_cancelling or not self._get_remove_cancellable():
+            return
+        if flag.request():
+            self._remove_cancelling = True
+            self.removeChanged.emit()
+
+    @Slot()
+    def closeRemoveAccount(self) -> None:
+        """"Cancel" in the confirmation, or "Close" after an error or a stop."""
+        if self._remove_state in ("confirm", "failed", "cancelled"):
+            self._remove_plan = None
+            self._remove_error = ""
+            self._set_remove_state("")
+
     @Slot(result=bool)
     def requestClose(self) -> bool:
         """Return true if the window can close. Otherwise wait for the actions and send ``closeReady``."""
@@ -1021,6 +1242,78 @@ class AppController(QObject):
         self._close_timer.stop()
         self._close_allowed = True
         self.closeReady.emit()
+
+    def _set_remove_state(self, state: str) -> None:
+        if state != self._remove_state:
+            self._remove_state = state
+            self.removeChanged.emit()
+
+    def _on_remove_step(self, step: int, state: str, progress: SyncProgress | None) -> None:
+        """Called from the _Job thread. Does not send Qt signals. ``_poll_remove`` does that."""
+        with self._remove_lock:
+            self._remove_steps[step] = (state, progress)
+            self._remove_version += 1
+
+    def _poll_remove(self) -> None:
+        job = self._remove_job
+        done = job is not None and job.done
+        with self._remove_lock:
+            version = self._remove_version
+        if version != self._remove_seen:
+            self._remove_seen = version
+            self.removeChanged.emit()
+        if job is None:
+            self._remove_timer.stop()
+            return
+        if not done:
+            return
+        self._remove_job = None
+        self._remove_timer.stop()
+        if job.kind == "prepare":
+            if job.error is not None:
+                self._remove_error = self._remove_error_text(job.error)
+                self._set_remove_state("failed")
+                self.removeChanged.emit()
+                return
+            self._remove_plan = job.result
+            self._set_remove_state("confirm")
+            self.removeChanged.emit()
+            return
+        self._end_critical(job)
+        plan = self._remove_plan
+        self._model.set_busy(str(plan.account.confdir), False)
+        self._remove_cancel = None
+        self._remove_cancelling = False
+        if job.error is not None:
+            self._remove_error = self._remove_error_text(job.error)
+            self._set_remove_state("failed")
+            self.removeChanged.emit()
+            self.refresh()
+            self.refreshStatus()
+            return
+        if job.result.outcome == removal_mod.CANCELLED:
+            self._set_remove_state("cancelled")
+            self.removeChanged.emit()
+            self.refreshStatus()
+            return
+        self._remove_plan = None
+        self._set_remove_state("")
+        self.refresh()
+        if sideeffects.safe_mode() and self._run is sideeffects.run:
+            self._set_message(f"Safe mode: Skyhus did not remove the account {plan.account.name}.")
+            return
+        lines = [f"The account {plan.account.name} is removed."]
+        if job.result.sync_folder_left is not None:
+            lines.append(f"Skyhus could not move the sync folder {job.result.sync_folder_left} to Trash. "
+                         "Remove it yourself.")
+        self._set_message("\n".join(lines))
+
+    @staticmethod
+    def _remove_error_text(error: BaseException) -> str:
+        if isinstance(error, (removal_mod.RemovalError, SystemctlError, OSError)):
+            return str(error)
+        log.error("Unexpected error in the removal of an account", exc_info=error)
+        return f"Unexpected error: {error}"
 
     def _start_action(self, account: Account, action: str) -> None:
         confdir = str(account.confdir)
@@ -1360,3 +1653,4 @@ class AppController(QObject):
         self._status_poll_timer.stop()
         self._progress_timer.stop()
         self._close_timer.stop()
+        self._remove_timer.stop()

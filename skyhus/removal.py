@@ -126,6 +126,50 @@ def find_removed(sync_path: Path, old: Rules | RuleSet, new: Rules | RuleSet, *,
     return walk(Path(sync_path), "")[1]
 
 
+def find_local_only(sync_path: Path, rules: RuleSet) -> list[RemovedPath]:
+    """The topmost local paths that the rules keep out of the sync (feature 0018).
+
+    These paths are only on this computer. A folder that the rules exclude
+    completely is 1 path. Symlinks are not in the list.
+    """
+
+    def walk(directory: Path, rel_dir: str) -> list[RemovedPath]:
+        try:
+            entries = sorted(os.scandir(directory), key=lambda e: (not e.is_dir(follow_symlinks=False), e.name))
+        except OSError as exc:
+            log.warning("Cannot read %s: %s", directory, exc)
+            return []
+        found: list[RemovedPath] = []
+        for entry in entries:
+            rel = f"{rel_dir}/{entry.name}" if rel_dir else entry.name
+            path = Path(entry.path)
+            if entry.is_symlink():
+                continue
+            if not entry.is_dir(follow_symlinks=False):
+                if not rules.includes(rel, False):
+                    found.append(RemovedPath(path, False, _size(path)))
+                continue
+            if not rules.includes(rel, True) and not rules.may_contain(rel):
+                found.append(RemovedPath(path, True, _size(path)))
+                continue
+            found.extend(walk(path, rel))
+        return found
+
+    return walk(Path(sync_path), "")
+
+
+def count_files(removed: Iterable[RemovedPath]) -> int:
+    """The number of files in the paths. A folder counts with all files in it."""
+    total = 0
+    for item in removed:
+        if not item.is_dir:
+            total += 1
+            continue
+        for _dirpath, _dirnames, filenames in os.walk(item.path, followlinks=False):
+            total += len(filenames)
+    return total
+
+
 def total_size(removed: Iterable[RemovedPath]) -> int:
     return sum(r.size for r in removed)
 
