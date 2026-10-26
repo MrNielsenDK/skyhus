@@ -2,6 +2,11 @@
 
 The project follows [Keep a Changelog](https://keepachangelog.com/) and [SemVer](https://semver.org/).
 
+## [0.14.1] - 2026-10-26
+
+### Fixed
+- The card "Activity" does not show "No connection to Microsoft OneDrive" when a sync completed after the connection problem. See `docs/features/0021-resolved-connection-problems.md`.
+
 ## [0.14.0] - 2026-09-24
 
 ### Added

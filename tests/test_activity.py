@@ -226,3 +226,71 @@ def test_problems_text_has_one_line_per_problem():
         "Download failed: not enough disk space · 2 times · today at 08:00 · Photos/2.jpg",
         f"{activity.HTTP_429} · 1 time · today at 08:00",
     ]
+
+
+# Connection problems before the last sync (feature 0021)
+
+def no_connection(when):
+    return Event(activity.PROBLEM, when, message=activity.NO_CONNECTION)
+
+
+def test_connection_problems_before_a_sync_are_hidden():
+    log = Activity()
+    log.add([no_connection(T0), no_connection(T0 + 1), no_connection(T0 + 2), Event(activity.SYNCED, T0 + 10)],
+            now=T0 + 10)
+
+    assert log.problems() == []
+
+
+def test_only_connection_problems_after_the_last_sync_count():
+    log = Activity()
+    log.add([no_connection(T0), no_connection(T0 + 1), Event(activity.SYNCED, T0 + 10), no_connection(T0 + 20)],
+            now=T0 + 20)
+
+    assert [(p.title, p.count, p.newest) for p in log.problems()] == [(activity.NO_CONNECTION, 1, T0 + 20)]
+
+
+def test_connection_problems_without_a_sync_are_shown():
+    log = Activity()
+    log.add([no_connection(T0), no_connection(T0 + 1)], now=T0 + 1)
+
+    assert [(p.title, p.count) for p in log.problems()] == [(activity.NO_CONNECTION, 2)]
+
+
+def test_connection_problem_at_the_time_of_the_sync_is_shown():
+    log = Activity()
+    log.add([no_connection(T0), Event(activity.SYNCED, T0)], now=T0)
+
+    assert [p.title for p in log.problems()] == [activity.NO_CONNECTION]
+
+
+def test_network_error_line_before_a_sync_is_hidden():
+    events = parse([
+        entry("ERROR: Microsoft OneDrive API returned an error with the following message:", when=T0),
+        entry("  Error Message:    Could not resolve hostname on handle 7FADA011A1B0", when=T0),
+        entry("Sync with Microsoft OneDrive is complete", when=T0 + 10),
+    ])
+    log = Activity()
+    log.add(events, now=T0 + 10)
+
+    assert log.problems() == []
+
+
+def test_other_problems_before_a_sync_are_shown():
+    log = Activity()
+    log.add([Event(activity.FAILED, T0, "Photos/1.jpg", direction="Download"),
+             Event(activity.PROBLEM, T0 + 1, message="Error: Upload failed", is_error=True),
+             Event(activity.PROBLEM, T0 + 2, message=activity.HTTP_429),
+             Event(activity.SYNCED, T0 + 10)], now=T0 + 10)
+
+    assert [p.title for p in log.problems()] == [activity.HTTP_429, "Error: Upload failed", "Download failed"]
+
+
+def test_problems_text_leaves_out_hidden_connection_problems():
+    log = Activity()
+    log.add([no_connection(T0), Event(activity.PROBLEM, T0 + 1, message=activity.HTTP_429),
+             Event(activity.SYNCED, T0 + 10)], now=T0 + 10)
+
+    text = activity.problems_text(log.problems(), datetime.fromtimestamp(T0 + 60))
+
+    assert text.splitlines() == [f"{activity.HTTP_429} · 1 time · today at 08:00"]

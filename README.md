@@ -120,7 +120,7 @@ On GNOME, the tray needs the extension "AppIndicator and KStatusNotifierItem Sup
 The card "Activity" on each account shows the last 24 hours from the journal of the service:
 
 - a summary, for example "Last sync: today at 08:34 · 24 h: 120 downloaded, 3 uploaded, 12 failed",
-- the problems, 1 row for each kind, with the number of times, the newest time and an example path. Failed files and errors are red. Other problems, such as no connection, are orange.
+- the problems, 1 row for each kind, with the number of times, the newest time and an example path. Failed files and errors are red. Other problems, such as no connection, are orange. A connection problem before the last sync is not shown, because the client connected again.
 - the 20 newest files that the client downloaded, uploaded or deleted. "Show all" shows the newest 200.
 
 "Copy problems" copies the problem rows to the clipboard. "Refresh" reads the last 24 hours again.

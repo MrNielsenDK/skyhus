@@ -4,7 +4,8 @@
 client downloaded, uploaded or deleted, files that failed, problems such as
 no connection, and the end of each sync. ``Activity`` keeps the events of the
 last 24 hours for 1 service and gives the summary, the grouped problems and the
-recent files for the card "Activity".
+recent files for the card "Activity". The problems leave out connection problems
+before the last sync (feature 0021).
 
 The line texts are checked against the strings in ``/usr/bin/onedrive`` 2.5.11.
 Other lines are ignored.
@@ -196,11 +197,18 @@ class Activity:
         return f"{text} {LIMIT_TEXT}" if self.truncated else text
 
     def problems(self) -> list[Problem]:
-        """1 row for each kind of problem, the newest problem first."""
+        """1 row for each kind of problem, the newest problem first.
+
+        A connection problem before the last sync is not a problem: the client connected again (feature 0021).
+        """
+        last_sync = max((e.when for e in self._events if e.kind == SYNCED), default=None)
         groups: dict[str, list[Event]] = {}
         for event in self._events:
-            if event.kind in (FAILED, PROBLEM):
-                groups.setdefault(_title(event), []).append(event)
+            if event.kind not in (FAILED, PROBLEM):
+                continue
+            if event.message == NO_CONNECTION and last_sync is not None and event.when < last_sync:
+                continue
+            groups.setdefault(_title(event), []).append(event)
         problems = []
         for title, events in groups.items():
             newest = max(events, key=lambda e: e.when)
