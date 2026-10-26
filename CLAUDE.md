@@ -15,6 +15,7 @@ python3 -m pytest                                   # the full suite
 python3 -m pytest tests/test_rules.py -k dotfiles   # 1 file / 1 selection
 python3 -m skyhus.app --safe                  # start without changes to the system
 python3 -m skyhus.app                         # live mode – uses the real services
+python3 -m skyhus.install [--uninstall]       # writes/removes 3 files under ~/.local (no pip)
 ```
 
 There is no linter and no build step other than setuptools. `python3 -m compileall -q skyhus` finds syntax errors.
@@ -46,6 +47,12 @@ The machine has the real OneDrive accounts of the user (work in `~/.config/onedr
 
 **Services.** `service.py` writes new units in the form of `onedrive-privat.service` (incl. `OnFailure=onedrive-failure@%N.service`, `RestartPreventExitStatus=126`) and never overwrites an existing unit. `service_control.py`: start/restart is always `reset-failed` + `restart`. Resync uses a temporary drop-in `<service>.d/zz-skyhus-resync.conf`, which copies `ExecStart` and adds `--resync --resync-auth`. The drop-in is removed again after the restart. `service_state.py` gets all units with 1 `systemctl show` call and selects the state in a fixed priority. Exit code 126 means "Needs resync". `process.py` finds `onedrive` processes outside the service through `/proc` and cgroup. Actions are refused when such a process runs.
 
+**Remove an account.** `account_removal.prepare()` changes nothing. `execute()` also has a fixed order: disable the trigger units → disable and stop the service → upload → remove the unit files Skyhus wrote → delete `refresh_token` → Trash the config folder (and the sync folder only when the user chose it) → update the registry.
+
+**Files with a marker.** Skyhus writes the `~/.local` files (`install.py`) and the autostart file (`autostart.py`) with a marker such as `X-Skyhus-Installer=true`. It never overwrites or removes such a file without the marker.
+
+**Journal parsing.** `journal.py` reads `journalctl --user -u <service> -o json` (the latest error, the lines of the current run, the activity with a cursor). `progress.py` (progress) and `activity.py` (the card "Activity", 24 hours in memory) parse the client's line texts. These texts are checked against the strings in `/usr/bin/onedrive` 2.5.11, and other lines are ignored. A new kind of line needs a change in the table of the feature document and a test. The tray never reads the journal.
+
 **Design.** All colors, sizes and times are tokens in the QML singleton `Theme` (`import Skyhus 1.0`, `theme.py`). The theme follows the light/dark theme of the system live. QML must not contain `#RRGGBB` or named colors; tests enforce this and check the WCAG contrast of the tokens. Use the components in `qml/components/` again, and show dialogs as `Sheet`. Icons are Lucide SVG in `assets/icons/` through `image://icon/<name>/<rrggbb>`. The font Inter is in `assets/fonts/`.
 
 ## Workflow
@@ -53,3 +60,7 @@ The machine has the real OneDrive accounts of the user (work in `~/.config/onedr
 The project language is English. This applies to the user interface, code, comments, documentation and commit messages. The only Danish text in the code is the Danish input for `naming.slugify` (see `tests/test_language.py`).
 
 No code without a feature document. Each change, also bug fixes, is described in `docs/features/NNNN-short-name.md` with the skill `vaas-agenter:feature-workflow` before you write code. The user dictates features and tells you when to build. Feature documents and `CHANGELOG.md` are written in English with the ASD-STE100 rules in the skill. The feature documents 0001–0013 stay in Danish as history. Implementation usually uses the agent `vaas-agenter:implementer` with the path to the document. The agent writes tests first, bumps `version` in `pyproject.toml` (the only version source, SemVer) and adds a line in `CHANGELOG.md` (Keep a Changelog). The status in the document goes from `planned` to `developed`.
+
+If the skill or the agent is not available, do the same steps by hand, and copy the form of the newest feature document: the header `Version` / `Status` / `Created`, then `Problem`, `Solution`, `Scope`, `Plan`, `Tests`, `Verification`, `Open questions`. The feature number is not the version. A bug fix is a PATCH version with `### Fixed` in `CHANGELOG.md`. Module and test docstrings name their feature, for example `(feature 0019)`.
+
+Tests enforce the language: `tests/test_language.py` also scans `README.md`, `CLAUDE.md` and `CHANGELOG.md` for Danish words, and `tests/test_readme.py` requires some phrases in `README.md`.
